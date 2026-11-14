@@ -44,8 +44,6 @@ python scaffold.py
 ## Results
 
 ```
-Downloading original names dataset...
-Loaded 32033 original names.
 1. Perplexity of names (section 6.1.5): the effective number of next characters
    order  alpha   train perplexity  test perplexity
        0   None              27.00            27.00
@@ -59,7 +57,6 @@ Loaded 32033 original names.
    unigram  Huffman 4.088 bits, model cross entropy 4.056 bits
    bigram   Huffman 3.580 bits, model cross entropy 3.535 bits
    trigram  Huffman 3.245 bits, model cross entropy 3.218 bits
-Loaded 32033 original names.
    general-purpose compressors: zlib 4.04, lzma 3.91, bz2 3.68
    fixed-length code: 5 bits. The model tables are trained in advance and not counted here.
 
