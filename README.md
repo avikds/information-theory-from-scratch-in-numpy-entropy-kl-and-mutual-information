@@ -30,6 +30,7 @@ python scaffold.py
 - [x] **18.** mean_field_reverse_kl
 - [x] **19.** gaussian_mi
 - [x] **20.** histogram_mi
+- [x] **21.** ksg_mi
 
 ---
 

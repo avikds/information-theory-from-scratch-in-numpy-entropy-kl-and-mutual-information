@@ -2231,3 +2231,156 @@ def histogram_mi(x, y, bins_x=None, bins_y=None,
 
     return float(mi)
 
+# Step 21 - ksg_mi
+EULER_GAMMA = 0.5772156649015329
+
+
+def digamma_table(n_max):
+    """
+    Precompute digamma function values for integer arguments.
+
+    Uses the recurrence:
+
+        psi(1) = -gamma
+        psi(n) = psi(n-1) + 1/(n-1)
+
+    Parameters:
+        n_max: Maximum integer argument.
+
+    Returns:
+        Float NumPy array of length n_max + 1.
+        Index 0 is initialized to 0 and is not used.
+    """
+
+    # Validate the maximum index.
+    if (not isinstance(n_max, (int, np.integer)) or
+            isinstance(n_max, (bool, np.bool_)) or n_max < 0):
+        raise ValueError("n_max must be a non-negative integer.")
+
+    # Initialize the digamma lookup table.
+    psi = np.zeros(n_max + 1, dtype=float)
+
+    # Calculate the first digamma value.
+    if n_max >= 1:
+        psi[1] = -EULER_GAMMA
+
+    # Calculate remaining values using the recurrence relation.
+    for n in range(2, n_max + 1):
+        psi[n] = psi[n - 1] + 1.0 / (n - 1)
+
+    return psi
+
+
+def ksg_mi(x, y, k=3):
+    """
+    Estimate mutual information using the KSG k-nearest-neighbour
+    estimator (maximum-norm variant).
+
+    Parameters:
+        x: First variable, shape (n,) or (n, dx).
+        y: Second variable, shape (n,) or (n, dy).
+        k: Number of nearest neighbours. Default is 3.
+
+    Returns:
+        Python float representing estimated mutual information in nats.
+
+    Notes:
+        - Uses the maximum (Chebyshev) norm.
+        - Excludes the observation itself when finding neighbours.
+        - Counts marginal neighbours strictly inside the joint radius.
+        - Does not clip small negative estimates.
+    """
+
+    # Convert both inputs into NumPy arrays.
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+
+    # Convert one-dimensional inputs into column vectors.
+    if x.ndim == 1:
+        x = x.reshape(-1, 1)
+
+    if y.ndim == 1:
+        y = y.reshape(-1, 1)
+
+    # Validate the input dimensions.
+    if x.ndim != 2 or y.ndim != 2:
+        raise ValueError("Inputs must have shape (n,) or (n, d).")
+
+    if x.shape[1] == 0 or y.shape[1] == 0:
+        raise ValueError("Each variable must have at least one dimension.")
+
+    # Both variables must contain the same number of observations.
+    if x.shape[0] != y.shape[0]:
+        raise ValueError("Both variables must have the same number of observations.")
+
+    # Validate the observations.
+    if not np.all(np.isfinite(x)) or not np.all(np.isfinite(y)):
+        raise ValueError("Observations must contain only finite values.")
+
+    # Determine the number of observations.
+    n = x.shape[0]
+
+    # Validate the number of neighbours.
+    if (not isinstance(k, (int, np.integer)) or
+            isinstance(k, (bool, np.bool_)) or k < 1 or k >= n):
+        raise ValueError("k must be a positive integer smaller than n.")
+
+    # Precompute the digamma values required by the estimator.
+    psi = digamma_table(n)
+
+    # Initialize arrays for marginal neighbour counts.
+    nx = np.zeros(n, dtype=np.int64)
+    ny = np.zeros(n, dtype=np.int64)
+
+    # Create an index array to exclude each observation itself.
+    not_self = np.arange(n)
+
+    # Calculate neighbourhood distances for every observation.
+    for i in range(n):
+
+        # Calculate maximum-norm distances in the X space.
+        dx = np.max(
+            np.abs(x - x[i]),
+            axis=1
+        )
+
+        # Calculate maximum-norm distances in the Y space.
+        dy = np.max(
+            np.abs(y - y[i]),
+            axis=1
+        )
+
+        # Calculate joint-space distances using the maximum norm.
+        # d((xi, yi), (xj, yj)) = max(dx, dy).
+        d_joint = np.maximum(dx, dy)
+
+        # Exclude the observation itself from the neighbour search.
+        d_joint[i] = np.inf
+
+        # Find the distance to the k-th nearest neighbour.
+        # np.partition avoids sorting the entire distance array.
+        epsilon = np.partition(d_joint, k - 1)[k - 1]
+
+        # Count other observations strictly inside the joint radius
+        # in the X space.
+        nx[i] = np.count_nonzero(
+            (dx < epsilon) & (not_self != i)
+        )
+
+        # Count other observations strictly inside the joint radius
+        # in the Y space.
+        ny[i] = np.count_nonzero(
+            (dy < epsilon) & (not_self != i)
+        )
+
+    # Apply the KSG mutual information estimator.
+    # Digamma values are retrieved from the precomputed lookup table.
+    mi = (
+        psi[k]
+        + psi[n]
+        - np.mean(psi[nx + 1] + psi[ny + 1])
+    )
+
+    # Return the estimate without clipping negative values.
+    return float(mi)
+
