@@ -16,6 +16,7 @@ python scaffold.py
 - [x] **4.** fit_ngram
 - [x] **5.** model_perplexity
 - [x] **6.** ngram_ladder
+- [x] **7.** compress_names
 
 ---
 

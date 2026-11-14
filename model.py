@@ -579,3 +579,88 @@ def ngram_ladder(splits, max_order=4, alphas=(0.001, 0.01, 0.03, 0.1, 0.3, 1.0))
 
     return rows
 
+# Step 7 - compress_names
+def compress_names(splits, alpha=0.01):
+    """
+    Compress held-out names using context-dependent Huffman codes.
+
+    For unigram, bigram, and trigram models:
+        1. Fit an n-gram probability model on training sequences.
+        2. Build a Huffman code for every possible context.
+        3. Calculate the mean actual codeword length on test sequences.
+        4. Calculate the theoretical cross-entropy on test sequences.
+
+    Parameters:
+        splits: Dictionary containing 'train', 'val', and 'test' sequences.
+        alpha: Additive smoothing parameter. Default is 0.01.
+
+    Returns:
+        A flat dictionary containing:
+            unigram_bits, unigram_ce,
+            bigram_bits, bigram_ce,
+            trigram_bits, trigram_ce,
+            fixed_bits, log2_27.
+
+        All dictionary values are Python floats.
+    """
+
+    # Initialize the results with fixed-length coding baselines.
+    results = {
+        "fixed_bits": 5.0,
+        "log2_27": float(np.log2(27))
+    }
+
+    # Evaluate unigram, bigram, and trigram language models.
+    models = [
+        ("unigram", 1),
+        ("bigram", 2),
+        ("trigram", 3)
+    ]
+
+    # Process each language model independently.
+    for name, order in models:
+
+        # Step 1: Fit the n-gram model using the training dataset.
+        table = fit_ngram(
+            splits["train"],
+            order,
+            alpha=alpha
+        )
+
+        # Step 2: Initialize an array to store Huffman codeword lengths.
+        # Its shape is identical to the conditional probability table.
+        lengths = np.zeros(table.shape, dtype=np.int64)
+
+        # Generate every possible context index.
+        # The final axis represents the symbol being predicted.
+        for context in np.ndindex(table.shape[:-1]):
+
+            # Build an optimal Huffman code for the current context.
+            lengths[context] = huffman_lengths(table[context])
+
+        # Step 3: Generate context-target events from held-out names.
+        events = ngram_events(
+            splits["test"],
+            order
+        )
+
+        # Retrieve the actual Huffman codeword length for each
+        # observed symbol using its corresponding context.
+        event_lengths = lengths[tuple(events.T)]
+
+        # Calculate the average actual number of bits per symbol.
+        results[f"{name}_bits"] = float(np.mean(event_lengths))
+
+        # Step 4: Calculate theoretical cross-entropy in bits
+        # using the previously implemented model evaluation function.
+        bits_per_symbol, _ = model_perplexity(
+            table,
+            splits["test"]
+        )
+
+        # Store the theoretical cross-entropy.
+        results[f"{name}_ce"] = float(bits_per_symbol)
+
+    # Return all compression measurements in one flat dictionary.
+    return results
+
