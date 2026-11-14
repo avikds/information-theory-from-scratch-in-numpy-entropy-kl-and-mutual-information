@@ -2936,3 +2936,123 @@ def mic(x, y, alpha=0.6, clumps_per_col=5):
     # Return the maximum MIC score and characteristic matrix.
     return float(np.max(M)), M
 
+# Step 25 - relationship_zoo
+# Define the five functional relationships.
+ZOO = {
+    "line": lambda t: t,
+    "parabola": lambda t: t ** 2,
+    "cubic": lambda t: 4.0 * t ** 3 - 3.0 * t,
+    "sine": lambda t: np.sin(4.0 * np.pi * t),
+    "step": lambda t: np.sign(t) * (np.abs(t) > 0.3),
+}
+
+
+def zoo_sample(name, n, seed, noise=0.0):
+    """
+    Generate samples for a specified relationship.
+
+    Parameters:
+        name: Name of the relationship.
+        n: Number of observations.
+        seed: Random seed for reproducibility.
+        noise: Relative noise level.
+
+    Returns:
+        Tuple containing the generated X and Y arrays.
+    """
+
+    rng = np.random.default_rng(seed)
+
+    # Generate circular data.
+    if name == "circle":
+        t = rng.uniform(0.0, 2.0 * np.pi, n)
+        r = 1.0 + noise * rng.standard_normal(n)
+
+        return r * np.cos(t), r * np.sin(t)
+
+    # Generate X-shaped data.
+    if name == "x_shape":
+        t = rng.uniform(-1.0, 1.0, n)
+        s = rng.choice([-1.0, 1.0], n)
+
+        return t, s * t + noise * rng.standard_normal(n)
+
+    # Generate independent data.
+    if name == "independent":
+        return (
+            rng.uniform(-1.0, 1.0, n),
+            rng.uniform(-1.0, 1.0, n)
+        )
+
+    # Generate samples for the five functional relationships.
+    t = rng.uniform(-1.0, 1.0, n)
+
+    fx = ZOO[name](t)
+
+    # Add Gaussian noise proportional to the standard deviation
+    # of the noiseless transformed output.
+    return (
+        t,
+        fx + noise * fx.std() * rng.standard_normal(n)
+    )
+
+
+def relationship_zoo(n=500, seed=0, noise=0.0):
+    """
+    Compare squared Pearson correlation and MIC across
+    eight different types of relationships.
+
+    Parameters:
+        n: Number of observations per relationship. Default is 500.
+        seed: Random seed for reproducibility. Default is 0.
+        noise: Noise level for the generated relationships. Default is 0.0.
+
+    Returns:
+        Dictionary mapping each relationship name to another
+        dictionary containing:
+
+            r2: Squared sample correlation (Python float).
+            mic: Maximal information coefficient (Python float).
+    """
+
+    # Define all eight relationships in the required order.
+    names = [
+        "line",
+        "parabola",
+        "cubic",
+        "sine",
+        "step",
+        "circle",
+        "x_shape",
+        "independent"
+    ]
+
+    # Initialize the result dictionary.
+    results = {}
+
+    # Evaluate every relationship.
+    for name in names:
+
+        # Generate reproducible samples for the current relationship.
+        x, y = zoo_sample(
+            name,
+            n,
+            seed,
+            noise
+        )
+
+        # Calculate the squared sample correlation.
+        correlation = np.corrcoef(x, y)[0, 1]
+        r2 = float(correlation ** 2)
+
+        # Calculate the maximal information coefficient.
+        mic_value, _ = mic(x, y)
+
+        # Store both measurements.
+        results[name] = {
+            "r2": r2,
+            "mic": float(mic_value)
+        }
+
+    return results
+

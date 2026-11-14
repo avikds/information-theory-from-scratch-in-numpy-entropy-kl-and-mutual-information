@@ -34,6 +34,7 @@ python scaffold.py
 - [x] **22.** estimator_showdown
 - [x] **23.** optimal_x_partition
 - [x] **24.** mic
+- [x] **25.** relationship_zoo
 
 ---
 
