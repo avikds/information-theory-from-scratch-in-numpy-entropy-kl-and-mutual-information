@@ -664,3 +664,79 @@ def compress_names(splits, alpha=0.01):
     # Return all compression measurements in one flat dictionary.
     return results
 
+# Step 8 - entropy_table
+def entropy_table(P, base=2):
+    """
+    Compute entropy quantities from a two-variable joint
+    probability distribution.
+
+    Parameters:
+        P: 2-D array representing the joint distribution P(X, Y).
+        base: Logarithm base. Default is 2 (bits).
+
+    Returns:
+        Dictionary containing marginal, joint, conditional
+        and mutual information quantities.
+    """
+
+    # Convert the joint probability table into a NumPy array.
+    P = np.asarray(P, dtype=float)
+
+    if P.ndim != 2:
+        raise ValueError("P must be a 2-dimensional joint probability table.")
+
+    # Calculate marginal probability distributions.
+    p_x = np.sum(P, axis=1)
+    p_y = np.sum(P, axis=0)
+
+    # Calculate marginal and joint entropies.
+    # max(0.0, ...) also ensures that negative zero becomes positive zero.
+    H_X = float(max(0.0, entropy(p_x, base=base)))
+    H_Y = float(max(0.0, entropy(p_y, base=base)))
+    H_XY = float(max(0.0, entropy(P, base=base)))
+
+    # Calculate conditional entropies using the chain rule.
+    H_X_given_Y = float(max(0.0, H_XY - H_Y))
+    H_Y_given_X = float(max(0.0, H_XY - H_X))
+
+    # Calculate mutual information.
+    I_XY = float(max(0.0, H_X + H_Y - H_XY))
+
+    # Calculate normalized mutual information.
+    denominator = min(H_X, H_Y)
+
+    if denominator > 0.0:
+        NMI = float(I_XY / denominator)
+    else:
+        NMI = 0.0
+
+    # Calculate conditional entropy H(X | Y = y) for every column.
+    # Initialize with positive zeros, including zero-probability columns.
+    H_X_given_y = np.zeros(P.shape[1], dtype=float)
+
+    for j in range(P.shape[1]):
+
+        # Only calculate conditional entropy for positive-probability columns.
+        if p_y[j] > 0.0:
+
+            # Calculate the conditional probability distribution P(X | Y=y).
+            conditional_distribution = P[:, j] / p_y[j]
+
+            # Calculate entropy and eliminate negative zero.
+            H_X_given_y[j] = max(
+                0.0,
+                entropy(conditional_distribution, base=base)
+            )
+
+    # Return all quantities in the required format.
+    return {
+        "H_X": H_X,
+        "H_Y": H_Y,
+        "H_XY": H_XY,
+        "H_X_given_Y": H_X_given_Y,
+        "H_Y_given_X": H_Y_given_X,
+        "I_XY": I_XY,
+        "NMI": NMI,
+        "H_X_given_y": H_X_given_y
+    }
+

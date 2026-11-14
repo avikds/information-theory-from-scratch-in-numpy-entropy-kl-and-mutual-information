@@ -17,6 +17,7 @@ python scaffold.py
 - [x] **5.** model_perplexity
 - [x] **6.** ngram_ladder
 - [x] **7.** compress_names
+- [x] **8.** entropy_table
 
 ---
 
