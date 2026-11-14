@@ -946,3 +946,58 @@ def sequence_logo(seqs):
 
     return pwm, info_bits, consensus
 
+# Step 11 - entropy_estimates
+def entropy_estimates(counts, base=2):
+    """
+    Estimate entropy using the plug-in estimator and
+    the Miller-Madow bias correction.
+
+    Parameters:
+        counts: Array of non-negative observed counts over the states.
+        base: Logarithm base. Default is 2 (bits).
+
+    Returns:
+        Tuple containing:
+            plugin: Plug-in entropy of the empirical distribution.
+            miller_madow: Bias-corrected entropy estimate.
+
+        Both values are returned as Python floats.
+    """
+
+    # Validate the logarithm base.
+    if not np.isfinite(base) or base <= 0 or base == 1:
+        raise ValueError("The logarithm base must be positive and different from 1.")
+
+    # Convert counts into a flattened NumPy array.
+    counts = np.asarray(counts, dtype=float).ravel()
+
+    # Validate the observed counts.
+    if not np.all(np.isfinite(counts)) or np.any(counts < 0):
+        raise ValueError("Counts must be finite and non-negative.")
+
+    # Calculate the total number of observations.
+    N = float(np.sum(counts))
+
+    # Handle the case where there are no observations.
+    if N == 0:
+        return 0.0, 0.0
+
+    # Convert observed counts into empirical probabilities.
+    probabilities = counts / N
+
+    # Calculate the number of states with non-zero observed counts.
+    K = int(np.count_nonzero(counts > 0))
+
+    # Calculate plug-in entropy using the existing entropy function.
+    plugin = float(entropy(probabilities, base=base))
+
+    # Calculate the Miller-Madow first-order bias correction.
+    # The correction is initially expressed in nats and then
+    # converted into the requested logarithm base.
+    correction = (K - 1) / (2.0 * N * np.log(base))
+
+    # Add the bias correction to the plug-in entropy.
+    miller_madow = float(plugin + correction)
+
+    return plugin, miller_madow
+
