@@ -3320,3 +3320,90 @@ def sufficient_statistic_mi(n, stat, thetas, base=2):
 
     return float(result)
 
+# Step 28 - mi_rank
+def mi_rank(X, y, bins=8):
+    """
+    Rank features according to their mutual information
+    with a discrete target variable.
+
+    Parameters:
+        X: Feature matrix of shape (n, d), where n is the
+           number of samples and d is the number of features.
+        y: Integer target labels starting at 0.
+        bins: Number of quantile bins for each feature.
+              Default is 8.
+
+    Returns:
+        Tuple containing:
+            order: NumPy integer array of feature indices
+                   sorted by decreasing mutual information.
+            mi: NumPy float array of mutual information scores
+                in the same order as the feature indices.
+    """
+
+    # Convert the feature matrix and target labels into NumPy arrays.
+    X = np.asarray(X, dtype=float)
+    y = np.asarray(y).ravel()
+
+    # Validate the feature matrix.
+    if X.ndim != 2 or X.shape[0] == 0 or X.shape[1] == 0:
+        raise ValueError("X must be a non-empty 2D feature matrix.")
+
+    if not np.all(np.isfinite(X)):
+        raise ValueError("Feature values must be finite.")
+
+    # Validate the target labels.
+    if y.size != X.shape[0]:
+        raise ValueError("X and y must contain the same number of samples.")
+
+    if (not np.issubdtype(y.dtype, np.integer) or
+            np.any(y < 0)):
+        raise ValueError("y must contain non-negative integer labels.")
+
+    # Validate the number of bins.
+    if (not isinstance(bins, (int, np.integer)) or
+            isinstance(bins, (bool, np.bool_)) or bins < 1):
+        raise ValueError("bins must be a positive integer.")
+
+    # Determine the number of target classes.
+    n_classes = int(np.max(y)) + 1
+
+    # Initialize an array to store mutual information
+    # for every feature in its original column order.
+    mi_values = np.zeros(X.shape[1], dtype=float)
+
+    # Calculate mutual information independently for each feature.
+    for j in range(X.shape[1]):
+
+        # Discretize the current feature using quantile binning.
+        feature_bins = bin_index(
+            X[:, j],
+            bins,
+            strategy="quantile"
+        )
+
+        # Construct the joint probability table between
+        # the binned feature and the target labels.
+        joint = joint_table(
+            feature_bins,
+            y,
+            na=bins,
+            nb=n_classes
+        )
+
+        # Calculate mutual information in bits.
+        mi_values[j] = entropy_table(
+            joint,
+            base=2
+        )["I_XY"]
+
+    # Sort features by decreasing mutual information.
+    # Stable sorting preserves original column order when scores tie.
+    order = np.argsort(
+        -mi_values,
+        kind="stable"
+    )
+
+    # Return feature indices and their corresponding MI scores.
+    return order.astype(np.int64), mi_values[order]
+
