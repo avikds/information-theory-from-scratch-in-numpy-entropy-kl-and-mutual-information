@@ -1974,3 +1974,260 @@ def sample_gaussian_pair(n, rho, seed):
 
     return x, y
 
+# Step 20 - histogram_mi
+def scott_bins(x):
+    """
+    Calculate the number of histogram bins using Scott's rule.
+
+    B = N^(1/3) * (max(x) - min(x)) / (3.5 * std(x))
+
+    Parameters:
+        x: One-dimensional array of observations.
+
+    Returns:
+        Integer representing the recommended number of bins.
+        The result is always at least 1.
+    """
+
+    # Convert observations into a flattened NumPy array.
+    x = np.asarray(x, dtype=float).ravel()
+
+    # Validate the input.
+    if x.size == 0:
+        raise ValueError("At least one observation is required.")
+
+    if not np.all(np.isfinite(x)):
+        raise ValueError("Observations must be finite.")
+
+    # Calculate the number of observations, range, and standard deviation.
+    N = x.size
+    data_range = np.max(x) - np.min(x)
+    sigma = np.std(x)
+
+    # Constant-valued data requires only one bin.
+    if data_range == 0 or sigma == 0:
+        return 1
+
+    # Calculate the recommended number of bins using Scott's rule.
+    B = (N ** (1.0 / 3.0) * data_range) / (3.5 * sigma)
+
+    # Round upward and ensure at least one bin.
+    return int(max(1, np.ceil(B)))
+
+
+def bin_index(x, bins, strategy="width"):
+    """
+    Convert observations into integer histogram bin indices.
+
+    Parameters:
+        x: Array of observations.
+        bins: Number of bins.
+        strategy: Binning strategy:
+            "width": Equal-width intervals.
+            "quantile": Approximately equal-frequency bins.
+
+    Returns:
+        Integer NumPy array containing bin indices
+        between 0 and bins - 1.
+    """
+
+    # Convert observations into a flattened NumPy array.
+    x = np.asarray(x, dtype=float)
+
+    original_shape = x.shape
+    x = x.ravel()
+
+    # Validate the input.
+    if x.size == 0:
+        raise ValueError("At least one observation is required.")
+
+    if not np.all(np.isfinite(x)):
+        raise ValueError("Observations must be finite.")
+
+    if not isinstance(bins, (int, np.integer)) or isinstance(bins, (bool, np.bool_)) or bins < 1:
+        raise ValueError("bins must be a positive integer.")
+
+    if strategy not in ("width", "quantile"):
+        raise ValueError("strategy must be 'width' or 'quantile'.")
+
+    # Equal-width binning.
+    if strategy == "width":
+
+        # Calculate the minimum and maximum observations.
+        xmin = np.min(x)
+        xmax = np.max(x)
+
+        # Handle constant-valued observations.
+        if xmax == xmin:
+            indices = np.zeros(x.size, dtype=np.int64)
+
+        else:
+            # Assign observations to equal-width intervals.
+            indices = np.floor(
+                (x - xmin) / (xmax - xmin) * bins
+            ).astype(np.int64)
+
+            # Ensure the maximum observation belongs to the last bin.
+            indices = np.clip(indices, 0, bins - 1)
+
+    # Quantile binning.
+    else:
+
+        N = x.size
+
+        # Obtain stable ranks, breaking ties by original position.
+        order = np.argsort(x, kind="stable")
+
+        ranks = np.empty(N, dtype=np.int64)
+        ranks[order] = np.arange(N)
+
+        # Assign ranks to approximately equal-frequency bins.
+        indices = ranks * bins // N
+
+        # Ensure all indices are within the valid range.
+        indices = np.clip(indices, 0, bins - 1)
+
+    # Restore the original input shape.
+    return indices.reshape(original_shape)
+
+
+def joint_table(a, b, na=None, nb=None):
+    """
+    Construct a normalized joint contingency table.
+
+    Parameters:
+        a: Integer bin indices for the first variable.
+        b: Integer bin indices for the second variable.
+        na: Number of possible states for the first variable.
+            Defaults to max(a) + 1.
+        nb: Number of possible states for the second variable.
+            Defaults to max(b) + 1.
+
+    Returns:
+        Normalized joint probability table of shape (na, nb).
+    """
+
+    # Convert both inputs into flattened arrays.
+    a = np.asarray(a).ravel()
+    b = np.asarray(b).ravel()
+
+    # Ensure both arrays have the same number of observations.
+    if a.size != b.size:
+        raise ValueError("Both arrays must have the same number of elements.")
+
+    if a.size == 0:
+        raise ValueError("At least one observation is required.")
+
+    # Validate that the indices are finite, non-negative integers.
+    if (not np.issubdtype(a.dtype, np.integer) or
+            not np.issubdtype(b.dtype, np.integer) or
+            np.any(a < 0) or np.any(b < 0)):
+        raise ValueError("Bin indices must be non-negative integers.")
+
+    # Determine the number of states when not explicitly provided.
+    if na is None:
+        na = int(np.max(a)) + 1
+
+    if nb is None:
+        nb = int(np.max(b)) + 1
+
+    # Validate the table dimensions.
+    if (not isinstance(na, (int, np.integer)) or
+            isinstance(na, (bool, np.bool_)) or na < 1):
+        raise ValueError("na must be a positive integer.")
+
+    if (not isinstance(nb, (int, np.integer)) or
+            isinstance(nb, (bool, np.bool_)) or nb < 1):
+        raise ValueError("nb must be a positive integer.")
+
+    # Ensure all indices fit within the requested table dimensions.
+    if np.any(a >= na) or np.any(b >= nb):
+        raise ValueError("Bin indices exceed the specified table dimensions.")
+
+    # Initialize the joint count table.
+    counts = np.zeros((na, nb), dtype=float)
+
+    # Count the occurrences of each pair of states.
+    np.add.at(counts, (a, b), 1.0)
+
+    # Normalize counts to obtain joint probabilities.
+    return counts / a.size
+
+
+def histogram_mi(x, y, bins_x=None, bins_y=None,
+                 strategy="width", correct=False):
+    """
+    Estimate mutual information using a histogram plug-in estimator.
+
+    Parameters:
+        x: Observations of the first variable.
+        y: Observations of the second variable.
+        bins_x: Number of bins for X. None uses Scott's rule.
+        bins_y: Number of bins for Y. None uses Scott's rule.
+        strategy: Binning strategy ('width' or 'quantile').
+        correct: Whether to apply the Miller-Madow bias correction.
+
+    Returns:
+        Python float representing estimated mutual information in nats.
+    """
+
+    # Convert observations into flattened NumPy arrays.
+    x = np.asarray(x, dtype=float).ravel()
+    y = np.asarray(y, dtype=float).ravel()
+
+    # Validate the observations.
+    if x.size != y.size:
+        raise ValueError("Both variables must have the same number of observations.")
+
+    if x.size == 0:
+        raise ValueError("At least one observation is required.")
+
+    if not np.all(np.isfinite(x)) or not np.all(np.isfinite(y)):
+        raise ValueError("Observations must be finite.")
+
+    if strategy not in ("width", "quantile"):
+        raise ValueError("strategy must be 'width' or 'quantile'.")
+
+    # Use Scott's rule whenever the number of bins is not specified.
+    if bins_x is None:
+        bins_x = scott_bins(x)
+
+    if bins_y is None:
+        bins_y = scott_bins(y)
+
+    # Discretize both variables using the selected strategy.
+    a = bin_index(x, bins_x, strategy)
+    b = bin_index(y, bins_y, strategy)
+
+    # Construct the normalized joint probability table.
+    # Explicit dimensions preserve all requested histogram bins.
+    joint = joint_table(
+        a,
+        b,
+        na=bins_x,
+        nb=bins_y
+    )
+
+    # Calculate plug-in mutual information in nats.
+    mi = float(entropy_table(joint, base=np.e)["I_XY"])
+
+    # Optionally apply the Miller-Madow bias correction.
+    if correct:
+
+        # Count non-empty cells in the joint table.
+        K_xy = np.count_nonzero(joint)
+
+        # Count non-empty states in each marginal distribution.
+        K_x = np.count_nonzero(np.sum(joint, axis=1))
+        K_y = np.count_nonzero(np.sum(joint, axis=0))
+
+        # Calculate the number of observations.
+        N = x.size
+
+        # Calculate and subtract the Miller-Madow bias.
+        correction = (K_xy - K_x - K_y + 1) / (2.0 * N)
+
+        mi -= correction
+
+    return float(mi)
+
