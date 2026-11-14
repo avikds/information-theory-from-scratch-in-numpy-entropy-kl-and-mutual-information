@@ -740,3 +740,82 @@ def entropy_table(P, base=2):
         "H_X_given_y": H_X_given_y
     }
 
+# Step 9 - chain_rule_entropy
+def chain_rule_entropy(P, base=2):
+    """
+    Apply the chain rule of entropy to a joint distribution
+    over any number of random variables.
+
+    Parameters:
+        P: N-dimensional joint probability array, with one
+           axis per random variable (X1, X2, ..., Xn).
+        base: Logarithm base. Default is 2 (bits).
+
+    Returns:
+        A tuple containing:
+            H_joint: Joint entropy H(X1, X2, ..., Xn).
+            terms: List of conditional entropies:
+                   H(X1), H(X2 | X1), ...,
+                   H(Xn | X1, ..., Xn-1).
+    """
+
+    # Convert the input into a NumPy array.
+    P = np.asarray(P, dtype=float)
+
+    # Ensure that the joint distribution has at least one dimension.
+    if P.ndim < 1:
+        raise ValueError("P must have at least one dimension.")
+
+    # Validate the probability values.
+    if not np.all(np.isfinite(P)) or np.any(P < 0):
+        raise ValueError("Probabilities must be finite and non-negative.")
+
+    # Get the total number of random variables.
+    n = P.ndim
+
+    # Store the entropy of consecutive joint marginals.
+    marginal_entropies = []
+
+    # Calculate H(X1), H(X1, X2), ..., H(X1, ..., Xn).
+    for i in range(1, n + 1):
+
+        # Sum over all remaining axes to obtain
+        # the marginal distribution of the first i variables.
+        if i < n:
+            marginal = np.sum(P, axis=tuple(range(i, n)))
+        else:
+            marginal = P
+
+        # Calculate the entropy of the current marginal.
+        H = entropy(marginal, base=base)
+
+        # Remove possible negative zero caused by numerical rounding.
+        H = float(max(0.0, H))
+
+        # Store the current joint marginal entropy.
+        marginal_entropies.append(H)
+
+    # Calculate conditional entropies using consecutive differences.
+    terms = []
+    previous_entropy = 0.0
+
+    for current_entropy in marginal_entropies:
+
+        # H(Xi | X1, ..., Xi-1) = H(X1, ..., Xi)
+        #                            - H(X1, ..., Xi-1)
+        conditional_entropy = max(
+            0.0,
+            current_entropy - previous_entropy
+        )
+
+        # Store the conditional entropy as a Python float.
+        terms.append(float(conditional_entropy))
+
+        # Update the previous marginal entropy.
+        previous_entropy = current_entropy
+
+    # The final marginal entropy is the full joint entropy.
+    H_joint = float(max(0.0, marginal_entropies[-1]))
+
+    return H_joint, terms
+

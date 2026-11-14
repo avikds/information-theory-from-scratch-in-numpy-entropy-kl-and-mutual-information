@@ -18,6 +18,7 @@ python scaffold.py
 - [x] **6.** ngram_ladder
 - [x] **7.** compress_names
 - [x] **8.** entropy_table
+- [x] **9.** chain_rule_entropy
 
 ---
 
