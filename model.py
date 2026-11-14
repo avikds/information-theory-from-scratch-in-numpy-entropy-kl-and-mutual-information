@@ -3407,3 +3407,131 @@ def mi_rank(X, y, bins=8):
     # Return feature indices and their corresponding MI scores.
     return order.astype(np.int64), mi_values[order]
 
+# Step 29 - fano_bounds
+def fano_bounds(h_y_given_x, K):
+    """
+    Calculate weak and tight lower bounds on classification error
+    using Fano's inequality.
+
+    Parameters:
+        h_y_given_x: Conditional entropy H(Y | X) in bits.
+        K: Number of possible classes.
+
+    Returns:
+        Tuple containing:
+            weak: Weak lower bound on classification error.
+            tight: Tighter lower bound obtained using bisection.
+
+        Both values are Python floats.
+    """
+
+    # Validate the number of classes.
+    if (not isinstance(K, (int, np.integer)) or
+            isinstance(K, (bool, np.bool_)) or K < 1):
+        raise ValueError("K must be a positive integer.")
+
+    # Validate conditional entropy.
+    h_y_given_x = float(h_y_given_x)
+
+    if not np.isfinite(h_y_given_x) or h_y_given_x < 0:
+        raise ValueError("Conditional entropy must be finite and non-negative.")
+
+    # Handle the single-class case separately.
+    if K == 1:
+        if not np.isclose(h_y_given_x, 0.0):
+            raise ValueError("Conditional entropy must be zero when K = 1.")
+        return 0.0, 0.0
+
+    # Calculate log2(K).
+    log_K = np.log2(K)
+
+    # Calculate the weak Fano lower bound.
+    weak = float(
+        max(0.0, (h_y_given_x - 1.0) / log_K)
+    )
+
+    # Zero conditional entropy implies a zero tight lower bound.
+    if h_y_given_x == 0.0:
+        return weak, 0.0
+
+    # Define binary entropy in bits.
+    def binary_entropy(p):
+        if p <= 0.0 or p >= 1.0:
+            return 0.0
+
+        return float(
+            -p * np.log2(p)
+            - (1.0 - p) * np.log2(1.0 - p)
+        )
+
+    # Upper endpoint of the specified bisection interval.
+    # The function is increasing on this interval.
+    low = 0.0
+    high = K / (K + 1.0)
+
+    # Perform 60 bisection iterations to find the tight bound.
+    for _ in range(60):
+
+        mid = (low + high) / 2.0
+
+        # Evaluate the right-hand side of Fano's inequality.
+        bound_value = (
+            binary_entropy(mid)
+            + mid * log_K
+        )
+
+        # Keep the upper endpoint when the condition holds.
+        if bound_value >= h_y_given_x:
+            high = mid
+        else:
+            low = mid
+
+    # Return the upper endpoint as the tight lower bound.
+    tight = float(high)
+
+    return weak, tight
+
+
+def bayes_error(P):
+    """
+    Calculate the Bayes classification error from a joint
+    probability table P(X, Y).
+
+    The Bayes error is:
+
+        1 - sum_x max_y P(x, y)
+
+    Parameters:
+        P: Two-dimensional joint probability table,
+           with rows representing observations or features
+           and columns representing class labels.
+
+    Returns:
+        Python float representing the minimum achievable
+        classification error.
+    """
+
+    # Convert the joint table into a NumPy array.
+    P = np.asarray(P, dtype=float)
+
+    # Validate the probability table dimensions.
+    if P.ndim != 2 or P.shape[0] == 0 or P.shape[1] == 0:
+        raise ValueError("P must be a non-empty two-dimensional array.")
+
+    # Validate probability values.
+    if not np.all(np.isfinite(P)) or np.any(P < 0):
+        raise ValueError("Probabilities must be finite and non-negative.")
+
+    # Find the largest joint probability for each X state.
+    # Each maximum represents the best class prediction.
+    best_predictions = np.max(P, axis=1)
+
+    # Sum the probabilities of all correct Bayes predictions.
+    correct_probability = np.sum(best_predictions)
+
+    # Bayes error equals one minus the probability of a correct prediction.
+    error = 1.0 - correct_probability
+
+    # Protect against tiny negative values caused by rounding.
+    return float(max(0.0, error))
+
