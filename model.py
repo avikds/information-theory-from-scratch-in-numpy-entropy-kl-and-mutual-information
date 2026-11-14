@@ -296,3 +296,126 @@ def load_names(seed=0):
         "test": test
     }
 
+# Step 4 - fit_ngram
+def ngram_events(seqs, order):
+    """
+    Generate context-target events from encoded sequences.
+
+    Each row contains:
+        - The preceding (order - 1) symbols.
+        - The current symbol to predict.
+
+    Missing context symbols at the beginning of a sequence
+    are padded with zeros.
+
+    Parameters:
+        seqs: List of encoded NumPy arrays.
+        order: Order of the n-gram model.
+
+    Returns:
+        NumPy integer array of shape (N, order), where N is
+        the total number of symbols across all sequences.
+    """
+    # Validate the n-gram order.
+    if not isinstance(order, (int, np.integer)) or isinstance(order, (bool, np.bool_)) or order < 1:
+        raise ValueError("Order must be a positive integer.")
+
+    events_list = []
+
+    # Process each encoded sequence independently.
+    for seq in seqs:
+        seq = np.asarray(seq, dtype=np.int64).ravel()
+
+        # Validate symbol indices.
+        if np.any((seq < 0) | (seq >= 27)):
+            raise ValueError("Symbol indices must be between 0 and 26.")
+
+        # Allocate an event array for the current sequence.
+        events = np.zeros((len(seq), order), dtype=np.int64)
+
+        # Generate one context-target event per symbol.
+        for i, symbol in enumerate(seq):
+
+            # The current symbol is always the prediction target.
+            events[i, -1] = symbol
+
+            # Identify the available preceding context.
+            start = max(0, i - order + 1)
+            context = seq[start:i]
+
+            # Place the context immediately before the target.
+            # Any remaining positions on the left stay zero-padded.
+            if len(context) > 0:
+                events[i, order - 1 - len(context):-1] = context
+
+        # Store events generated from this sequence.
+        if len(events) > 0:
+            events_list.append(events)
+
+    # Combine events from all sequences.
+    # Return the correct empty shape when there are no events.
+    if not events_list:
+        return np.empty((0, order), dtype=np.int64)
+
+    return np.concatenate(events_list, axis=0)
+
+
+def fit_ngram(seqs, order, alpha=0.0):
+    """
+    Fit an n-gram language model using conditional probabilities.
+
+    The probability table estimates:
+
+        P(next_symbol | context)
+
+    Counts are accumulated for every context-target event.
+    Add-alpha smoothing is applied to every cell.
+
+    Parameters:
+        seqs: List of encoded NumPy arrays.
+        order: Order of the n-gram model.
+        alpha: Additive smoothing parameter. Default is 0.0.
+
+    Returns:
+        NumPy float array of shape (27,) * order containing
+        conditional probability distributions.
+    """
+    # Validate the smoothing parameter.
+    alpha = float(alpha)
+
+    if not np.isfinite(alpha) or alpha < 0:
+        raise ValueError("Alpha must be finite and non-negative.")
+
+    # Generate context-target events from the input sequences.
+    events = ngram_events(seqs, order)
+
+    # Initialize the count table.
+    # Its shape is (27,) repeated 'order' times.
+    counts = np.zeros((27,) * order, dtype=float)
+
+    # Accumulate the number of occurrences of each event.
+    if len(events) > 0:
+        np.add.at(counts, tuple(events.T), 1.0)
+
+    # Apply add-alpha smoothing to every cell.
+    counts += alpha
+
+    # Calculate the total count for each context.
+    # Normalization is performed along the final (target) axis.
+    totals = np.sum(counts, axis=-1, keepdims=True)
+
+    # Initialize with a uniform distribution.
+    # This handles contexts with zero total count when alpha = 0.
+    probabilities = np.full_like(counts, 1.0 / 27.0)
+
+    # Normalize counts to obtain conditional probabilities.
+    # Unobserved contexts retain their uniform distribution.
+    np.divide(
+        counts,
+        totals,
+        out=probabilities,
+        where=totals > 0
+    )
+
+    return probabilities
+
