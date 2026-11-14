@@ -22,6 +22,7 @@ python scaffold.py
 - [x] **10.** sequence_logo
 - [x] **11.** entropy_estimates
 - [x] **12.** kl_divergence
+- [x] **13.** quantized_entropy
 
 ---
 

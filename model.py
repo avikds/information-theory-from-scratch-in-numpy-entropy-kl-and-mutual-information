@@ -1054,3 +1054,135 @@ def kl_divergence(p, q, base=2):
 
     return float(divergence)
 
+# Step 13 - quantized_entropy
+def gaussian_entropy(Sigma, base=np.e):
+    """
+    Calculate the differential entropy of a Gaussian distribution.
+
+    h(X) = 1/2 * ln((2 * pi * e)^d * |Sigma|)
+
+    Parameters:
+        Sigma: Covariance matrix or scalar variance.
+        base: Logarithm base. Default is np.e (nats).
+
+    Returns:
+        Python float representing Gaussian differential entropy.
+    """
+
+    # Validate the logarithm base.
+    if not np.isfinite(base) or base <= 0 or base == 1:
+        raise ValueError("The logarithm base must be positive and different from 1.")
+
+    # Convert the covariance input into a NumPy array.
+    Sigma = np.asarray(Sigma, dtype=float)
+
+    # Ensure covariance values are finite.
+    if not np.all(np.isfinite(Sigma)):
+        raise ValueError("Covariance values must be finite.")
+
+    # Handle the scalar variance case.
+    if Sigma.ndim == 0:
+
+        # A variance must be strictly positive.
+        if Sigma <= 0:
+            raise ValueError("Variance must be strictly positive.")
+
+        # For a scalar variance, the dimensionality is one.
+        d = 1
+
+        # Calculate the logarithm of the determinant.
+        log_det = np.log(float(Sigma))
+
+    else:
+
+        # A covariance matrix must be two-dimensional and square.
+        if Sigma.ndim != 2 or Sigma.shape[0] != Sigma.shape[1]:
+            raise ValueError("Sigma must be a square covariance matrix or scalar variance.")
+
+        # Determine the dimensionality of the Gaussian distribution.
+        d = Sigma.shape[0]
+
+        if d == 0:
+            raise ValueError("Covariance matrix must not be empty.")
+
+        # Check that the covariance matrix is symmetric.
+        if not np.allclose(Sigma, Sigma.T):
+            raise ValueError("Covariance matrix must be symmetric.")
+
+        # Use Cholesky decomposition to verify positive definiteness.
+        try:
+            L = np.linalg.cholesky(Sigma)
+        except np.linalg.LinAlgError:
+            raise ValueError("Covariance matrix must be positive definite.")
+
+        # Calculate log(det(Sigma)) using the Cholesky factor.
+        # This is more numerically stable than computing the determinant directly.
+        log_det = 2.0 * np.sum(np.log(np.diag(L)))
+
+    # Calculate differential entropy in nats.
+    h_nats = 0.5 * (
+        d * np.log(2.0 * np.pi * np.e) + log_det
+    )
+
+    # Convert entropy into the requested logarithm base.
+    result = h_nats / np.log(base)
+
+    return float(result)
+
+
+def quantized_entropy(x, n_bits):
+    """
+    Calculate the empirical entropy of quantized continuous samples.
+
+    Samples are quantized using:
+
+        codes = floor(x * 2**n_bits)
+
+    The entropy is calculated in bits.
+
+    Parameters:
+        x: Continuous samples (list or NumPy array).
+        n_bits: Number of binary fractional bits used for quantization.
+
+    Returns:
+        Python float representing the entropy of the empirical
+        distribution of the resulting integer codes.
+    """
+
+    # Validate the number of quantization bits.
+    if not isinstance(n_bits, (int, np.integer)) or isinstance(n_bits, (bool, np.bool_)) or n_bits < 0:
+        raise ValueError("n_bits must be a non-negative integer.")
+
+    # Convert the samples into a flattened NumPy array.
+    x = np.asarray(x, dtype=float).ravel()
+
+    # Reject empty input.
+    if x.size == 0:
+        raise ValueError("At least one sample is required.")
+
+    # Ensure that all samples are finite.
+    if not np.all(np.isfinite(x)):
+        raise ValueError("Samples must contain only finite values.")
+
+    # Calculate the quantization scale.
+    scale = 2.0 ** n_bits
+
+    # Quantize samples into integer codes.
+    codes = np.floor(x * scale)
+
+    # Check that the resulting codes can be safely represented
+    # as NumPy int64 values.
+    if not np.all(np.isfinite(codes)) or np.any(codes < np.iinfo(np.int64).min) or np.any(codes > np.iinfo(np.int64).max):
+        raise ValueError("Quantized codes exceed the supported integer range.")
+
+    codes = codes.astype(np.int64)
+
+    # Count the frequency of each unique integer code.
+    _, counts = np.unique(codes, return_counts=True)
+
+    # Convert the counts into empirical probabilities.
+    probabilities = counts / counts.sum()
+
+    # Calculate Shannon entropy in bits.
+    return float(entropy(probabilities, base=2))
+
