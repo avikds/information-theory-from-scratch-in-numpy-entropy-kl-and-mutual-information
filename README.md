@@ -11,6 +11,7 @@ python scaffold.py
 ## Steps
 
 - [x] **1.** entropy
+- [x] **2.** huffman_lengths
 
 ---
 

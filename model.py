@@ -109,3 +109,121 @@ def perplexity(p):
     # Convert entropy into perplexity.
     return float(2.0 ** H)
 
+# Step 2 - huffman_lengths
+import heapq
+
+
+def huffman_lengths(p):
+    """
+    Compute optimal prefix-codeword lengths using Huffman coding.
+
+    Parameters:
+        p: Probability distribution (list or NumPy array).
+
+    Returns:
+        NumPy array containing the optimal codeword length
+        for each symbol. Symbols with zero probability
+        receive a codeword length of 0.
+    """
+    # Convert probabilities into a flattened NumPy array.
+    p = np.asarray(p, dtype=float).ravel()
+
+    # Validate the probability values.
+    if not np.all(np.isfinite(p)) or np.any(p < 0):
+        raise ValueError("Probabilities must be finite and non-negative.")
+
+    # Initialize codeword lengths to zero.
+    lengths = np.zeros(len(p), dtype=int)
+
+    # Build a min-heap containing only positive-probability symbols.
+    # Each entry stores (probability, unique_id, symbol_indices).
+    # The unique ID prevents heapq from comparing member lists
+    # when two groups have identical probabilities.
+    heap = []
+    unique_id = 0
+
+    for i, prob in enumerate(p):
+        if prob > 0:
+            heapq.heappush(heap, (float(prob), unique_id, [i]))
+            unique_id += 1
+
+    # If there are no positive-probability symbols, return zero lengths.
+    if len(heap) == 0:
+        return lengths
+
+    # A single positive-probability symbol still requires one bit.
+    if len(heap) == 1:
+        lengths[heap[0][2][0]] = 1
+        return lengths
+
+    # Repeatedly merge the two groups with the smallest probabilities.
+    while len(heap) > 1:
+        # Extract the two least probable groups.
+        prob1, _, members1 = heapq.heappop(heap)
+        prob2, _, members2 = heapq.heappop(heap)
+
+        # Every symbol in these groups gains one additional bit.
+        for index in members1:
+            lengths[index] += 1
+
+        for index in members2:
+            lengths[index] += 1
+
+        # Merge the two groups and insert the combined group into the heap.
+        merged_prob = prob1 + prob2
+        merged_members = members1 + members2
+
+        heapq.heappush(
+            heap,
+            (merged_prob, unique_id, merged_members)
+        )
+
+        unique_id += 1
+
+    return lengths
+
+
+def expected_code_length(p, lengths):
+    """
+    Calculate the expected codeword length of a distribution.
+
+    L = sum(p_k * l_k)
+
+    Parameters:
+        p: Probability distribution (list or NumPy array).
+        lengths: Codeword lengths corresponding to each symbol.
+
+    Returns:
+        Python float representing the expected code length.
+        Returns infinity if a positive-probability symbol
+        has a codeword length of zero.
+    """
+    # Convert inputs into flattened NumPy arrays.
+    p = np.asarray(p, dtype=float).ravel()
+    lengths = np.asarray(lengths, dtype=float).ravel()
+
+    # Ensure both arrays contain the same number of elements.
+    if p.size != lengths.size:
+        raise ValueError("Probabilities and code lengths must have the same size.")
+
+    # Validate probability values.
+    if not np.all(np.isfinite(p)) or np.any(p < 0):
+        raise ValueError("Probabilities must be finite and non-negative.")
+
+    # Validate codeword lengths.
+    if not np.all(np.isfinite(lengths)) or np.any(lengths < 0):
+        raise ValueError("Codeword lengths must be finite and non-negative.")
+
+    # Consider only symbols with positive probability.
+    mask = p > 0
+
+    # A positive-probability symbol without a codeword
+    # makes the expected code length infinite.
+    if np.any(lengths[mask] == 0):
+        return float("inf")
+
+    # Calculate the expected codeword length.
+    L = np.sum(p[mask] * lengths[mask])
+
+    return float(L)
+
