@@ -21,6 +21,7 @@ python scaffold.py
 - [x] **9.** chain_rule_entropy
 - [x] **10.** sequence_logo
 - [x] **11.** entropy_estimates
+- [x] **12.** kl_divergence
 
 ---
 

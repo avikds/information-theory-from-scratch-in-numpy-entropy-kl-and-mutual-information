@@ -1001,3 +1001,56 @@ def entropy_estimates(counts, base=2):
 
     return plugin, miller_madow
 
+# Step 12 - kl_divergence
+def kl_divergence(p, q, base=2):
+    """
+    Calculate the Kullback-Leibler (KL) divergence between
+    two discrete probability distributions.
+
+    D_KL(p || q) = sum(p_k * log(p_k / q_k))
+
+    Parameters:
+        p: True probability distribution (list or NumPy array).
+        q: Approximate probability distribution (list or NumPy array).
+        base: Logarithm base. Default is 2 (bits).
+
+    Returns:
+        Python float representing the KL divergence.
+
+        Returns infinity if q_k = 0 where p_k > 0.
+        States with p_k = 0 contribute nothing.
+    """
+
+    # Validate the logarithm base.
+    if not np.isfinite(base) or base <= 0 or base == 1:
+        raise ValueError("The logarithm base must be positive and different from 1.")
+
+    # Convert both inputs into flattened NumPy arrays.
+    p = np.asarray(p, dtype=float).ravel()
+    q = np.asarray(q, dtype=float).ravel()
+
+    # Ensure both distributions have the same number of elements.
+    if p.size != q.size:
+        raise ValueError("Both distributions must have the same number of elements.")
+
+    # Validate probability values.
+    if (not np.all(np.isfinite(p)) or
+            not np.all(np.isfinite(q)) or
+            np.any(p < 0) or np.any(q < 0)):
+        raise ValueError("Probabilities must be finite and non-negative.")
+
+    # Only consider states where p_k > 0.
+    mask = p > 0
+
+    # KL divergence is infinite if p_k > 0 and q_k = 0.
+    if np.any(q[mask] == 0):
+        return float("inf")
+
+    # Calculate KL divergence using logarithms.
+    # Subtracting logarithms avoids unnecessary division.
+    divergence = np.sum(
+        p[mask] * (np.log(p[mask]) - np.log(q[mask]))
+    ) / np.log(base)
+
+    return float(divergence)
+
