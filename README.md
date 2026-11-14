@@ -32,6 +32,7 @@ python scaffold.py
 - [x] **20.** histogram_mi
 - [x] **21.** ksg_mi
 - [x] **22.** estimator_showdown
+- [x] **23.** optimal_x_partition
 
 ---
 

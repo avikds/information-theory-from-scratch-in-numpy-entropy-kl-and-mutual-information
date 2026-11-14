@@ -2659,3 +2659,181 @@ def estimator_showdown(n=1000, rhos=(0.0, 0.3, 0.6, 0.9, 0.99),
         "mae": mae
     }
 
+# Step 23 - optimal_x_partition
+def optimal_x_partition(x, y_labels, k_max, clumps_per_col=5):
+    """
+    Find optimal vertical grid partitions that maximize mutual
+    information between grid columns and categorical labels.
+
+    Uses dynamic programming to minimize conditional entropy.
+
+    Parameters:
+        x: Continuous observations.
+        y_labels: Categorical labels corresponding to observations.
+        k_max: Maximum number of grid columns.
+        clumps_per_col: Maximum number of clumps per column.
+
+    Returns:
+        NumPy float array of length k_max + 1.
+
+        out[k] contains the maximum mutual information in bits
+        achievable using k contiguous grid columns.
+        out[0] is always zero.
+    """
+
+    # Convert inputs into flattened NumPy arrays.
+    x = np.asarray(x, dtype=float).ravel()
+    y_labels = np.asarray(y_labels).ravel()
+
+    # Validate the observations.
+    if x.size == 0:
+        raise ValueError("At least one observation is required.")
+
+    if x.size != y_labels.size:
+        raise ValueError("x and y_labels must have the same length.")
+
+    if not np.all(np.isfinite(x)):
+        raise ValueError("x must contain finite values.")
+
+    # Validate the grid parameters.
+    if (not isinstance(k_max, (int, np.integer)) or
+            isinstance(k_max, (bool, np.bool_)) or k_max < 1):
+        raise ValueError("k_max must be a positive integer.")
+
+    if (not isinstance(clumps_per_col, (int, np.integer)) or
+            isinstance(clumps_per_col, (bool, np.bool_)) or
+            clumps_per_col < 1):
+        raise ValueError("clumps_per_col must be a positive integer.")
+
+    # Encode arbitrary categorical labels as consecutive integers.
+    # This supports binary, three-class, and multiclass problems.
+    _, y_encoded = np.unique(
+        y_labels,
+        return_inverse=True
+    )
+
+    n = x.size
+
+    # Determine the number of distinct label categories.
+    n_classes = int(np.max(y_encoded)) + 1
+
+    # Sort observations by x using stable sorting.
+    order = np.argsort(x, kind="stable")
+
+    y_sorted = y_encoded[order]
+
+    # Determine the number of clumps.
+    m = min(n, clumps_per_col * k_max)
+
+    # Assign each sorted observation to a clump.
+    clump_ids = np.arange(n) * m // n
+
+    # Count observations belonging to every class in each clump.
+    counts = np.zeros((m, n_classes), dtype=float)
+
+    np.add.at(
+        counts,
+        (clump_ids, y_sorted),
+        1.0
+    )
+
+    # Calculate cumulative class counts for efficient interval queries.
+    prefix = np.vstack((
+        np.zeros((1, n_classes)),
+        np.cumsum(counts, axis=0)
+    ))
+
+    # Calculate the overall entropy of the target labels.
+    overall_counts = np.sum(counts, axis=0)
+
+    H_Y = entropy(
+        overall_counts / n,
+        base=2
+    )
+
+    # --------------------------------------------------
+    # Precompute the weighted conditional entropy cost
+    # for every possible consecutive interval of clumps.
+    # --------------------------------------------------
+
+    cost = np.zeros((m, m + 1), dtype=float)
+
+    for a in range(m):
+
+        for b in range(a + 1, m + 1):
+
+            # Retrieve class counts for clumps a through b - 1.
+            interval_counts = prefix[b] - prefix[a]
+
+            # Calculate the number of observations in the interval.
+            n_ab = np.sum(interval_counts)
+
+            if n_ab == 0:
+                cost[a, b] = 0.0
+                continue
+
+            # Calculate the conditional class distribution.
+            probabilities = interval_counts / n_ab
+
+            # Calculate weighted conditional entropy.
+            cost[a, b] = (
+                (n_ab / n)
+                * entropy(probabilities, base=2)
+            )
+
+    # --------------------------------------------------
+    # Dynamic programming to find optimal partitions.
+    # dp[k, b] = minimum conditional entropy when the first
+    # b clumps are partitioned into k non-empty columns.
+    # --------------------------------------------------
+
+    max_k = min(k_max, m)
+
+    dp = np.full(
+        (max_k + 1, m + 1),
+        np.inf,
+        dtype=float
+    )
+
+    # Base case: zero clumps have zero cost.
+    dp[0, 0] = 0.0
+
+    # Evaluate every possible number of columns.
+    for k in range(1, max_k + 1):
+
+        for b in range(k, m + 1):
+
+            best_cost = np.inf
+
+            # Try every valid position for the last partition boundary.
+            for a in range(k - 1, b):
+
+                candidate = (
+                    dp[k - 1, a] + cost[a, b]
+                )
+
+                if candidate < best_cost:
+                    best_cost = candidate
+
+            dp[k, b] = best_cost
+
+    # --------------------------------------------------
+    # Convert minimum conditional entropy into mutual information.
+    # I(X_grid; Y) = H(Y) - H(Y | X_grid).
+    # --------------------------------------------------
+
+    out = np.zeros(k_max + 1, dtype=float)
+
+    for k in range(1, k_max + 1):
+
+        out[k] = max(
+            0.0,
+            H_Y - dp[k, m]
+        )
+
+    # Preserve the required output length when k_max > n.
+    result = np.zeros(k_max + 1, dtype=float)
+    result[:max_k + 1] = out
+
+    return result
+
