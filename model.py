@@ -1488,3 +1488,155 @@ def fit_forward_gaussian(samples):
 
     return mu, cov
 
+# Step 16 - fit_reverse_gaussian
+def bimodal_grad(X):
+    """
+    Calculate the gradient of the log density of the
+    bimodal Gaussian mixture with respect to each observation.
+
+    Parameters:
+        X: Observations of shape (n, 2), or a single point
+           of shape (2,).
+
+    Returns:
+        NumPy array of shape (n, 2) containing the gradients.
+    """
+
+    # Convert observations into a NumPy array.
+    X = np.asarray(X, dtype=float)
+
+    # Treat a single observation as a batch of one.
+    X = np.atleast_2d(X)
+
+    # Validate the observation dimensions.
+    if X.ndim != 2 or X.shape[1] != 2:
+        raise ValueError("X must have shape (n, 2) or (2,).")
+
+    if not np.all(np.isfinite(X)):
+        raise ValueError("Observations must contain finite values.")
+
+    # Calculate the log densities under both Gaussian components.
+    logp0 = gaussian_logpdf(
+        X,
+        BIMODAL_MEANS[0],
+        BIMODAL_COV
+    )
+
+    logp1 = gaussian_logpdf(
+        X,
+        BIMODAL_MEANS[1],
+        BIMODAL_COV
+    )
+
+    # Calculate the log of the sum of component densities.
+    # This ensures numerical stability when calculating responsibilities.
+    log_norm = np.logaddexp(logp0, logp1)
+
+    # Calculate the posterior responsibilities of both components.
+    r0 = np.exp(logp0 - log_norm)
+    r1 = np.exp(logp1 - log_norm)
+
+    # Calculate the responsibility-weighted difference between
+    # each component mean and the observations.
+    weighted_delta = (
+        r0[:, None] * (BIMODAL_MEANS[0] - X)
+        + r1[:, None] * (BIMODAL_MEANS[1] - X)
+    )
+
+    # Calculate the gradient using the inverse covariance
+    # through a linear system solver rather than an explicit inverse.
+    grad = np.linalg.solve(
+        BIMODAL_COV,
+        weighted_delta.T
+    ).T
+
+    return grad
+
+
+def fit_reverse_gaussian(mu0, n_steps=400, lr=0.05, n_mc=1024, seed=0):
+    """
+    Fit a Gaussian distribution to a bimodal target by minimizing
+    the reverse KL divergence D_KL(q || p).
+
+    The approximating Gaussian is parameterized as:
+
+        q = N(mu, L @ L.T)
+
+    where L is a lower-triangular matrix.
+
+    Parameters:
+        mu0: Initial mean vector of shape (2,).
+        n_steps: Number of gradient descent iterations.
+        lr: Learning rate.
+        n_mc: Number of fixed Monte Carlo samples.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        Tuple containing:
+            mu: Optimized mean vector.
+            cov: Optimized covariance matrix.
+    """
+
+    # Validate optimization parameters.
+    if not isinstance(n_steps, (int, np.integer)) or isinstance(n_steps, (bool, np.bool_)) or n_steps < 0:
+        raise ValueError("n_steps must be a non-negative integer.")
+
+    if not isinstance(n_mc, (int, np.integer)) or isinstance(n_mc, (bool, np.bool_)) or n_mc <= 0:
+        raise ValueError("n_mc must be a positive integer.")
+
+    if not np.isfinite(lr) or lr < 0:
+        raise ValueError("Learning rate must be finite and non-negative.")
+
+    # Convert the initial mean into a NumPy array.
+    mu = np.asarray(mu0, dtype=float).reshape(-1).copy()
+
+    if mu.shape != (2,) or not np.all(np.isfinite(mu)):
+        raise ValueError("mu0 must be a finite vector of shape (2,).")
+
+    # Initialize the random number generator.
+    rng = np.random.default_rng(seed)
+
+    # Generate standard normal Monte Carlo samples ONCE.
+    # These same samples are reused throughout gradient descent.
+    z = rng.standard_normal((n_mc, 2))
+
+    # Initialize the lower-triangular covariance factor.
+    L = np.eye(2)
+
+    # Perform gradient descent to minimize reverse KL divergence.
+    for _ in range(n_steps):
+
+        # Reparameterize the Gaussian samples:
+        # x = mu + L @ z, expressed in row-wise array form.
+        x = mu + z @ L.T
+
+        # Calculate the gradient of the target log density.
+        g = bimodal_grad(x)
+
+        # Calculate the gradient with respect to the mean.
+        grad_mu = -np.mean(g, axis=0)
+
+        # Calculate the inverse transpose of L using a linear solver.
+        # This avoids explicitly calculating the matrix inverse.
+        L_inv_T = np.linalg.solve(
+            L.T,
+            np.eye(2)
+        )
+
+        # Calculate the gradient with respect to L.
+        # Include the entropy contribution -L^(-T).
+        grad_L = -g.T @ z / n_mc - L_inv_T
+
+        # Keep the covariance factor lower triangular.
+        grad_L = np.tril(grad_L)
+
+        # Update both parameters using gradients computed
+        # from the same set of Monte Carlo samples.
+        mu -= lr * grad_mu
+        L -= lr * grad_L
+
+    # Recover the covariance matrix from the optimized factor.
+    cov = L @ L.T
+
+    return mu, cov
+
