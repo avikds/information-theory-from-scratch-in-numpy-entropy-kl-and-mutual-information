@@ -1738,3 +1738,104 @@ def kl_both_ways(n=100000, seed=0):
 
     return results
 
+# Step 18 - mean_field_reverse_kl
+def mean_field_reverse_kl(P, seed=0, n_iters=200, eps=1e-8):
+    """
+    Approximate a joint probability distribution using a
+    factorized mean-field distribution by minimizing reverse KL.
+
+    Parameters:
+        P: Two-dimensional joint probability table P(x, y).
+        seed: Random seed for reproducibility. Default is 0.
+        n_iters: Number of coordinate descent iterations. Default is 200.
+        eps: Small smoothing constant. Default is 1e-8.
+
+    Returns:
+        Tuple containing:
+            qx: Optimized marginal approximation for X.
+            qy: Optimized marginal approximation for Y.
+            kl: KL divergence between the factorized approximation
+                and the original joint distribution, measured in bits.
+    """
+
+    # Convert the input into a two-dimensional NumPy array.
+    P = np.asarray(P, dtype=float)
+
+    # Validate the joint probability table.
+    if P.ndim != 2 or P.shape[0] == 0 or P.shape[1] == 0:
+        raise ValueError("P must be a non-empty two-dimensional array.")
+
+    if not np.all(np.isfinite(P)) or np.any(P < 0):
+        raise ValueError("P must contain finite, non-negative values.")
+
+    if P.sum() <= 0:
+        raise ValueError("P must have a positive total probability.")
+
+    # Validate the iteration count and smoothing parameter.
+    if not isinstance(n_iters, (int, np.integer)) or isinstance(n_iters, (bool, np.bool_)) or n_iters < 0:
+        raise ValueError("n_iters must be a non-negative integer.")
+
+    if not np.isfinite(eps) or eps <= 0:
+        raise ValueError("eps must be a positive finite value.")
+
+    # Step 1: Smooth the joint probability table and take its logarithm.
+    # Smoothing prevents log(0) and numerical underflow.
+    logp = np.log((P + eps) / np.sum(P + eps))
+
+    # Step 2: Initialize qx and qy using random Dirichlet distributions.
+    rng = np.random.default_rng(seed)
+
+    qx = rng.dirichlet(np.ones(P.shape[0]))
+    qy = rng.dirichlet(np.ones(P.shape[1]))
+
+    # Step 3: Perform alternating coordinate descent updates.
+    for _ in range(n_iters):
+
+        # Update qx while keeping qy fixed:
+        # qx(x) is proportional to exp(sum_y qy(y) * log P(x, y)).
+        log_qx = np.sum(qy[None, :] * logp, axis=1)
+
+        # Subtract the largest exponent for numerical stability.
+        log_qx -= np.max(log_qx)
+
+        # Convert log probabilities into normalized probabilities.
+        qx = np.exp(log_qx)
+        qx /= np.sum(qx)
+
+        # Update qy using the newly updated qx:
+        # qy(y) is proportional to exp(sum_x qx(x) * log P(x, y)).
+        log_qy = np.sum(qx[:, None] * logp, axis=0)
+
+        # Subtract the largest exponent for numerical stability.
+        log_qy -= np.max(log_qy)
+
+        # Convert log probabilities into normalized probabilities.
+        qy = np.exp(log_qy)
+        qy /= np.sum(qy)
+
+    # Step 4: Remove very small probabilities.
+    # Values below 1e-3 are set to zero.
+    qx[qx < 1e-3] = 0.0
+    qy[qy < 1e-3] = 0.0
+
+    # Renormalize qx after thresholding.
+    if qx.sum() > 0:
+        qx /= qx.sum()
+    else:
+        qx[np.argmax(qx)] = 1.0
+
+    # Renormalize qy after thresholding.
+    if qy.sum() > 0:
+        qy /= qy.sum()
+    else:
+        qy[np.argmax(qy)] = 1.0
+
+    # Step 5: Construct the factorized joint approximation.
+    q_joint = np.outer(qx, qy)
+
+    # Calculate KL divergence against the original joint table.
+    # The divergence is measured in bits.
+    kl = float(kl_divergence(q_joint, P, base=2))
+
+    return qx, qy, kl
+
