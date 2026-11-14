@@ -39,6 +39,7 @@ python scaffold.py
 - [x] **27.** sufficient_statistic_mi
 - [x] **28.** mi_rank
 - [x] **29.** fano_bounds
+- [x] **30.** fano_curve
 
 ---
 

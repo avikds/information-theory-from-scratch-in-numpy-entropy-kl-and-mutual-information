@@ -3535,3 +3535,286 @@ def bayes_error(P):
     # Protect against tiny negative values caused by rounding.
     return float(max(0.0, error))
 
+# Step 30 - fano_curve
+def fano_curve(X_train, y_train, X_test, y_test,
+               m, levels=2, fixed_order=None):
+    """
+    Add features one at a time and compare information-theoretic
+    error bounds with actual classification errors.
+
+    Parameters:
+        X_train: Training feature matrix of shape (n_train, d).
+        y_train: Training class labels starting at 0.
+        X_test: Test feature matrix of shape (n_test, d).
+        y_test: Test class labels starting at 0.
+        m: Number of features to add.
+        levels: Number of possible values per feature.
+        fixed_order: Optional predefined feature selection order.
+
+    Returns:
+        List of dictionaries containing:
+            k: Number of selected features.
+            feature: Index of the newly selected feature.
+            h_y_given_x: Conditional entropy in bits.
+            weak: Weak Fano lower bound.
+            tight: Tight Fano lower bound.
+            train_error: Training Bayes classification error.
+            test_error: Actual test classification error.
+    """
+
+    # Convert feature matrices and labels into NumPy arrays.
+    X_train = np.asarray(X_train)
+    X_test = np.asarray(X_test)
+
+    y_train = np.asarray(y_train).ravel()
+    y_test = np.asarray(y_test).ravel()
+
+    # Validate the feature matrices.
+    if X_train.ndim != 2 or X_test.ndim != 2:
+        raise ValueError("Training and test features must be 2D arrays.")
+
+    if X_train.shape[0] != y_train.size:
+        raise ValueError("X_train and y_train must have matching sample counts.")
+
+    if X_test.shape[0] != y_test.size:
+        raise ValueError("X_test and y_test must have matching sample counts.")
+
+    if X_train.shape[1] != X_test.shape[1]:
+        raise ValueError("Training and test data must have the same features.")
+
+    if X_train.shape[0] == 0 or X_test.shape[0] == 0:
+        raise ValueError("Training and test datasets must not be empty.")
+
+    if not np.all(np.isfinite(X_train)) or not np.all(np.isfinite(X_test)):
+        raise ValueError("Feature values must be finite.")
+
+    # Validate categorical feature values.
+    if not np.all(X_train == np.floor(X_train)) or not np.all(X_test == np.floor(X_test)):
+        raise ValueError("Feature values must be integers.")
+
+    # Convert feature arrays to integer representations.
+    X_train = X_train.astype(np.int64)
+    X_test = X_test.astype(np.int64)
+
+    # Validate the number of feature levels.
+    if (not isinstance(levels, (int, np.integer)) or
+            isinstance(levels, (bool, np.bool_)) or levels < 1):
+        raise ValueError("levels must be a positive integer.")
+
+    # Ensure feature values belong to the specified range.
+    if (np.any(X_train < 0) or np.any(X_train >= levels) or
+            np.any(X_test < 0) or np.any(X_test >= levels)):
+        raise ValueError("Feature values must be between 0 and levels - 1.")
+
+    # Validate class labels.
+    if (not np.all(np.isfinite(y_train)) or
+            not np.all(np.isfinite(y_test)) or
+            not np.all(y_train == np.floor(y_train)) or
+            not np.all(y_test == np.floor(y_test))):
+        raise ValueError("Class labels must be finite integers.")
+
+    y_train = y_train.astype(np.int64)
+    y_test = y_test.astype(np.int64)
+
+    if np.any(y_train < 0) or np.any(y_test < 0):
+        raise ValueError("Class labels must be non-negative.")
+
+    # Determine the number of classes from the training labels.
+    n_classes = int(y_train.max()) + 1
+
+    # Validate the number of features to select.
+    n_features = X_train.shape[1]
+
+    if (not isinstance(m, (int, np.integer)) or
+            isinstance(m, (bool, np.bool_)) or
+            m < 0 or m > n_features):
+        raise ValueError("m must be between 0 and the number of features.")
+
+    # Validate the optional fixed feature selection order.
+    if fixed_order is not None:
+        fixed_order = list(fixed_order)
+
+        if len(fixed_order) < m:
+            raise ValueError("fixed_order must contain at least m features.")
+
+        if any(
+            not isinstance(j, (int, np.integer)) or
+            isinstance(j, (bool, np.bool_)) or
+            j < 0 or j >= n_features
+            for j in fixed_order[:m]
+        ):
+            raise ValueError("fixed_order contains an invalid feature index.")
+
+    # Initialize the running integer codes for training and test samples.
+    # Each sample initially belongs to cell zero.
+    code_train = np.zeros(y_train.size, dtype=np.int64)
+    code_test = np.zeros(y_test.size, dtype=np.int64)
+
+    # Find the overall majority class.
+    # np.argmax selects the lowest class when counts are tied.
+    class_counts = np.bincount(
+        y_train,
+        minlength=n_classes
+    )
+
+    majority_class = int(np.argmax(class_counts))
+
+    # Keep track of selected features.
+    selected_features = set()
+
+    # Store the results after adding each feature.
+    rows = []
+
+    # --------------------------------------------------
+    # Add features one at a time.
+    # --------------------------------------------------
+    for k in range(1, m + 1):
+
+        # --------------------------------------------------
+        # Step 1: Choose the next feature.
+        # --------------------------------------------------
+        if fixed_order is not None:
+
+            # Follow the supplied feature order.
+            feature = int(fixed_order[k - 1])
+
+        else:
+
+            # Find the feature with the highest mutual information.
+            best_score = -np.inf
+            feature = None
+
+            # Evaluate every feature that has not yet been selected.
+            for j in range(n_features):
+
+                if j in selected_features:
+                    continue
+
+                # Form candidate cell codes by adding feature j.
+                candidate_codes = (
+                    code_train * levels + X_train[:, j]
+                )
+
+                # Compress candidate codes into consecutive cell indices.
+                _, cells = np.unique(
+                    candidate_codes,
+                    return_inverse=True
+                )
+
+                # Build the joint table between candidate cells and labels.
+                candidate_joint = joint_table(
+                    cells,
+                    y_train
+                )
+
+                # Calculate the mutual information in bits.
+                score = entropy_table(
+                    candidate_joint,
+                    base=2
+                )["I_XY"]
+
+                # Select the highest-scoring feature.
+                # The 1e-12 tolerance preserves earlier columns on ties.
+                if feature is None or score > best_score + 1e-12:
+                    best_score = score
+                    feature = j
+
+        # Record the selected feature.
+        selected_features.add(feature)
+
+        # --------------------------------------------------
+        # Step 2: Update the running training and test codes.
+        # --------------------------------------------------
+        code_train = (
+            code_train * levels + X_train[:, feature]
+        )
+
+        code_test = (
+            code_test * levels + X_test[:, feature]
+        )
+
+        # --------------------------------------------------
+        # Step 3: Build the training joint probability table.
+        # --------------------------------------------------
+        joint = joint_table(
+            code_train,
+            y_train,
+            nb=n_classes
+        )
+
+        # Calculate conditional entropy H(Y | X).
+        h_y_given_x = float(
+            entropy_table(joint, base=2)["H_Y_given_X"]
+        )
+
+        # Calculate weak and tight Fano bounds.
+        weak, tight = fano_bounds(
+            h_y_given_x,
+            n_classes
+        )
+
+        # --------------------------------------------------
+        # Step 4: Calculate training Bayes error.
+        # --------------------------------------------------
+        train_error = bayes_error(joint)
+
+        # Determine which training cells have observations.
+        observed_cells = np.sum(joint, axis=1) > 0
+
+        # Calculate the optimal class prediction for every cell.
+        # np.argmax selects the lowest class in case of a tie.
+        cell_predictions = np.argmax(
+            joint,
+            axis=1
+        )
+
+        # --------------------------------------------------
+        # Calculate test predictions.
+        # --------------------------------------------------
+
+        # Initially assign the overall majority class to every test row.
+        # This is the required prediction for unseen cells.
+        test_predictions = np.full(
+            y_test.shape,
+            majority_class,
+            dtype=np.int64
+        )
+
+        # Check which test cell codes fall within the training table.
+        valid_cells = code_test < joint.shape[0]
+
+        # Further check whether those cells were observed during training.
+        known_cells = np.zeros(
+            y_test.size,
+            dtype=bool
+        )
+
+        known_cells[valid_cells] = observed_cells[
+            code_test[valid_cells]
+        ]
+
+        # Predict using the most probable class for observed cells.
+        test_predictions[known_cells] = cell_predictions[
+            code_test[known_cells]
+        ]
+
+        # Calculate the fraction of incorrect test predictions.
+        test_error = float(
+            np.mean(test_predictions != y_test)
+        )
+
+        # --------------------------------------------------
+        # Store the results for the current feature count.
+        # --------------------------------------------------
+        rows.append({
+            "k": int(k),
+            "feature": int(feature),
+            "h_y_given_x": float(h_y_given_x),
+            "weak": float(weak),
+            "tight": float(tight),
+            "train_error": float(train_error),
+            "test_error": float(test_error)
+        })
+
+    return rows
+
