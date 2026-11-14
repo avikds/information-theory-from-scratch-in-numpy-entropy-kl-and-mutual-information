@@ -2384,3 +2384,278 @@ def ksg_mi(x, y, k=3):
     # Return the estimate without clipping negative values.
     return float(mi)
 
+# Step 22 - estimator_showdown
+def additive_noise_mi(f, sigma, n_x=4001, n_y=8001):
+    """
+    Numerically calculate mutual information for:
+
+        X ~ N(0, 1)
+        Y = f(X) + sigma * noise
+
+    Computes I(X;Y) = h(Y) - h(Y|X).
+    """
+
+    # Create a grid for the standard normal variable X.
+    xs = np.linspace(-6.0, 6.0, n_x)
+
+    # Calculate the standard normal probability density.
+    px = np.exp(-0.5 * xs ** 2) / np.sqrt(2.0 * np.pi)
+
+    dx = xs[1] - xs[0]
+
+    # Apply the nonlinear transformation.
+    fx = f(xs)
+
+    # Construct the integration grid for Y.
+    ys = np.linspace(
+        fx.min() - 8.0 * sigma,
+        fx.max() + 8.0 * sigma,
+        n_y
+    )
+
+    dy = ys[1] - ys[0]
+
+    # Initialize the marginal probability density of Y.
+    py = np.zeros(n_y)
+
+    # Numerically integrate over X in chunks.
+    for i in range(0, n_x, 500):
+        chunk = fx[i:i + 500]
+
+        py += np.sum(
+            px[i:i + 500, None]
+            * np.exp(
+                -0.5 * ((ys[None, :] - chunk[:, None]) / sigma) ** 2
+            ),
+            axis=0
+        )
+
+    # Normalize the conditional Gaussian densities.
+    py *= dx / (sigma * np.sqrt(2.0 * np.pi))
+
+    # Calculate differential entropy h(Y).
+    h_y = -np.sum(
+        py[py > 0] * np.log(py[py > 0])
+    ) * dy
+
+    # Calculate conditional entropy h(Y | X).
+    h_y_given_x = gaussian_entropy(sigma ** 2)
+
+    return float(h_y - h_y_given_x)
+
+
+def estimator_showdown(n=1000, rhos=(0.0, 0.3, 0.6, 0.9, 0.99),
+                       n_repeats=5, seed=0):
+    """
+    Compare six mutual information estimators against known
+    theoretical values across Gaussian, warped, and nonlinear data.
+
+    Returns:
+        Dictionary containing:
+            rows: Mean estimates for every scenario.
+            mae: Mean absolute errors grouped by family and method.
+    """
+
+    # Define the six estimators in the required order.
+    methods = [
+        "fixed10",
+        "scott",
+        "scott_mm",
+        "quantile10",
+        "ksg3",
+        "gauss_formula"
+    ]
+
+    # Initialize the experimental scenarios.
+    scenarios = []
+
+    # --------------------------------------------------
+    # Family 1: Gaussian relationships.
+    # --------------------------------------------------
+    for rho in rhos:
+        scenarios.append({
+            "name": f"gauss {rho}",
+            "family": "gaussian",
+            "type": "gaussian",
+            "rho": rho,
+            # Remove negative zero from the theoretical truth.
+            "truth": float(max(0.0, gaussian_mi(rho)))
+        })
+
+    # --------------------------------------------------
+    # Family 2: Warped Gaussian relationships.
+    # --------------------------------------------------
+    for rho in rhos:
+        scenarios.append({
+            "name": f"warped {rho}",
+            "family": "warped",
+            "type": "warped",
+            "rho": rho,
+            # Mutual information is preserved by invertible transformations.
+            "truth": float(max(0.0, gaussian_mi(rho)))
+        })
+
+    # --------------------------------------------------
+    # Family 3: Nonlinear relationships.
+    # --------------------------------------------------
+    nonlinear_functions = [
+        ("x^2", lambda t: t ** 2, 0.3),
+        ("sin 3x", lambda t: np.sin(3 * t), 0.2),
+        ("|x|", np.abs, 0.1)
+    ]
+
+    for name, f, sigma in nonlinear_functions:
+
+        # Calculate true mutual information numerically.
+        truth = additive_noise_mi(f, sigma)
+
+        scenarios.append({
+            "name": name,
+            "family": "nonlinear",
+            "type": "nonlinear",
+            "function": f,
+            "sigma": sigma,
+            "truth": float(truth)
+        })
+
+    # Initialize result storage.
+    rows = []
+
+    # Initialize error storage by family and estimator.
+    errors = {
+        family: {method: [] for method in methods}
+        for family in ("gaussian", "warped", "nonlinear")
+    }
+
+    # --------------------------------------------------
+    # Evaluate all experimental scenarios.
+    # --------------------------------------------------
+    for i, scenario in enumerate(scenarios):
+
+        truth = scenario["truth"]
+
+        # Store estimates from each repetition.
+        estimates = {
+            method: [] for method in methods
+        }
+
+        for r in range(n_repeats):
+
+            # Generate the required reproducible seed.
+            s = seed + 1000 * r + 17 * i
+
+            # Generate data according to the scenario.
+            if scenario["type"] == "gaussian":
+
+                x, y = sample_gaussian_pair(
+                    n,
+                    scenario["rho"],
+                    s
+                )
+
+            elif scenario["type"] == "warped":
+
+                x, y = sample_gaussian_pair(
+                    n,
+                    scenario["rho"],
+                    s
+                )
+
+                # Apply invertible transformations.
+                x = np.exp(x)
+                y = y ** 3
+
+            else:
+
+                # Generate nonlinear data with Gaussian noise.
+                rng = np.random.default_rng(s)
+
+                x = rng.standard_normal(n)
+
+                y = (
+                    scenario["function"](x)
+                    + scenario["sigma"] * rng.standard_normal(n)
+                )
+
+            # Method 1: Fixed 10-bin histogram estimator.
+            estimates["fixed10"].append(
+                histogram_mi(x, y, 10, 10)
+            )
+
+            # Method 2: Scott's rule histogram estimator.
+            estimates["scott"].append(
+                histogram_mi(x, y)
+            )
+
+            # Method 3: Scott's rule with Miller-Madow correction.
+            estimates["scott_mm"].append(
+                histogram_mi(x, y, correct=True)
+            )
+
+            # Method 4: Quantile histogram estimator.
+            estimates["quantile10"].append(
+                histogram_mi(
+                    x, y, 10, 10, strategy="quantile"
+                )
+            )
+
+            # Method 5: KSG estimator with k = 3.
+            estimates["ksg3"].append(
+                ksg_mi(x, y, 3)
+            )
+
+            # Method 6: Gaussian closed-form estimator.
+            sample_rho = float(
+                np.corrcoef(x, y)[0, 1]
+            )
+
+            estimates["gauss_formula"].append(
+                gaussian_mi(sample_rho)
+            )
+
+        # --------------------------------------------------
+        # Calculate mean estimates and errors.
+        # --------------------------------------------------
+        row = {
+            "name": scenario["name"],
+            "family": scenario["family"],
+            "truth": float(truth)
+        }
+
+        for method in methods:
+
+            values = np.asarray(estimates[method], dtype=float)
+
+            # Calculate the average estimate across repetitions.
+            row[method] = float(np.mean(values))
+
+            # Calculate mean absolute error.
+            scenario_error = float(
+                np.mean(np.abs(values - truth))
+            )
+
+            errors[scenario["family"]][method].append(
+                scenario_error
+            )
+
+        rows.append(row)
+
+    # --------------------------------------------------
+    # Calculate mean absolute error for each family.
+    # --------------------------------------------------
+    mae = {}
+
+    for family in errors:
+
+        mae[family] = {}
+
+        for method in methods:
+            mae[family][method] = float(
+                np.mean(errors[family][method])
+            )
+
+    return {
+        "rows": rows,
+        "mae": mae
+    }
+

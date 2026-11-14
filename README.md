@@ -31,6 +31,7 @@ python scaffold.py
 - [x] **19.** gaussian_mi
 - [x] **20.** histogram_mi
 - [x] **21.** ksg_mi
+- [x] **22.** estimator_showdown
 
 ---
 
