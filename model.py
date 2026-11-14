@@ -819,3 +819,130 @@ def chain_rule_entropy(P, base=2):
 
     return H_joint, terms
 
+# Step 10 - sequence_logo
+MOTIF_THETA = np.array([
+    [0.25, 0.25, 0.25, 0.25],
+    [0.40, 0.20, 0.20, 0.20],
+    [0.10, 0.10, 0.70, 0.10],
+    [0.05, 0.05, 0.05, 0.85],
+    [0.90, 0.03, 0.03, 0.04],
+    [0.02, 0.02, 0.02, 0.94],
+    [1.00, 0.00, 0.00, 0.00],
+    [0.96, 0.01, 0.01, 0.02],
+    [0.60, 0.05, 0.05, 0.30],
+    [0.85, 0.05, 0.05, 0.05],
+    [0.45, 0.05, 0.45, 0.05],
+    [0.20, 0.40, 0.20, 0.20],
+    [0.25, 0.25, 0.25, 0.25],
+    [0.30, 0.20, 0.30, 0.20],
+    [0.25, 0.25, 0.25, 0.25],
+])
+
+
+def make_motif_alignment(n, seed):
+    """
+    Generate aligned DNA sequences from the known motif distribution.
+
+    Parameters:
+        n: Number of DNA sequences to generate.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        List of aligned DNA sequences.
+    """
+    # Initialize the random number generator.
+    rng = np.random.default_rng(seed)
+
+    # Sample one nucleotide for each position using its
+    # corresponding probability distribution.
+    idx = np.stack([
+        rng.choice(4, size=n, p=row)
+        for row in MOTIF_THETA
+    ], axis=1)
+
+    # Convert sampled nucleotide indices into DNA sequences.
+    return [
+        "".join(row)
+        for row in np.array(list("ACGT"))[idx]
+    ]
+
+
+def sequence_logo(seqs):
+    """
+    Convert aligned DNA sequences into a position weight matrix,
+    information content values, and a consensus sequence.
+
+    Parameters:
+        seqs: List of equal-length DNA sequences containing
+              only A, C, G, and T.
+
+    Returns:
+        Tuple containing:
+            pwm: Empirical nucleotide frequencies (T, 4).
+            info_bits: Information content at each position.
+            consensus: Most frequent nucleotide at each position.
+    """
+
+    # Define the nucleotide order.
+    nucleotides = "ACGT"
+
+    # Convert sequences into a list.
+    seqs = list(seqs)
+
+    # Validate the input.
+    if len(seqs) == 0:
+        raise ValueError("At least one DNA sequence is required.")
+
+    if not all(isinstance(seq, str) for seq in seqs):
+        raise ValueError("All sequences must be strings.")
+
+    # Get the number of sequences and their length.
+    N = len(seqs)
+    T = len(seqs[0])
+
+    # Ensure all sequences have equal length.
+    if any(len(seq) != T for seq in seqs):
+        raise ValueError("All sequences must have equal length.")
+
+    # Ensure all characters belong to the DNA alphabet.
+    if any(base not in nucleotides for seq in seqs for base in seq):
+        raise ValueError("Sequences must contain only A, C, G, and T.")
+
+    # Create a mapping from nucleotides to integer indices.
+    nucleotide_to_index = {
+        "A": 0,
+        "C": 1,
+        "G": 2,
+        "T": 3
+    }
+
+    # Encode the sequences as integer arrays.
+    encoded = np.array([
+        [nucleotide_to_index[base] for base in seq]
+        for seq in seqs
+    ], dtype=np.int64)
+
+    # Initialize the position weight matrix.
+    pwm = np.zeros((T, 4), dtype=float)
+
+    # Calculate empirical nucleotide frequencies at each position.
+    for t in range(T):
+        counts = np.bincount(encoded[:, t], minlength=4)
+        pwm[t] = counts / N
+
+    # Calculate information content for every position.
+    # Maximum entropy for four nucleotides is 2 bits.
+    info_bits = np.array([
+        max(0.0, 2.0 - entropy(pwm[t], base=2))
+        for t in range(T)
+    ], dtype=float)
+
+    # Construct the consensus sequence.
+    # np.argmax resolves ties using the earliest nucleotide in ACGT order.
+    consensus = "".join(
+        nucleotides[i]
+        for i in np.argmax(pwm, axis=1)
+    )
+
+    return pwm, info_bits, consensus
+
