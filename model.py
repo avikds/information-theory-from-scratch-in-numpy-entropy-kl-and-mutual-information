@@ -1186,3 +1186,106 @@ def quantized_entropy(x, n_bits):
     # Calculate Shannon entropy in bits.
     return float(entropy(probabilities, base=2))
 
+# Step 14 - gaussian_kl
+def gaussian_kl(mu1, Sigma1, mu2, Sigma2):
+    """
+    Calculate the KL divergence between two multivariate Gaussian
+    distributions:
+
+        D_KL(N(mu1, Sigma1) || N(mu2, Sigma2))
+
+    The divergence is calculated in nats.
+
+    Parameters:
+        mu1: Mean of the first Gaussian (scalar or vector).
+        Sigma1: Covariance matrix or scalar variance of the first Gaussian.
+        mu2: Mean of the second Gaussian (scalar or vector).
+        Sigma2: Covariance matrix or scalar variance of the second Gaussian.
+
+    Returns:
+        Python float representing the KL divergence in nats.
+    """
+
+    # Convert means into one-dimensional NumPy arrays.
+    mu1 = np.asarray(mu1, dtype=float).reshape(-1)
+    mu2 = np.asarray(mu2, dtype=float).reshape(-1)
+
+    # Ensure that both mean vectors have the same dimensions.
+    if mu1.size != mu2.size:
+        raise ValueError("Both mean vectors must have the same dimension.")
+
+    # Validate the mean values.
+    if not np.all(np.isfinite(mu1)) or not np.all(np.isfinite(mu2)):
+        raise ValueError("Mean values must be finite.")
+
+    # Convert scalar variances into 1x1 covariance matrices.
+    Sigma1 = np.asarray(Sigma1, dtype=float)
+    Sigma2 = np.asarray(Sigma2, dtype=float)
+
+    if Sigma1.ndim == 0:
+        Sigma1 = Sigma1.reshape(1, 1)
+
+    if Sigma2.ndim == 0:
+        Sigma2 = Sigma2.reshape(1, 1)
+
+    # Ensure covariance matrices are square.
+    if (Sigma1.ndim != 2 or Sigma2.ndim != 2 or
+            Sigma1.shape[0] != Sigma1.shape[1] or
+            Sigma2.shape[0] != Sigma2.shape[1]):
+        raise ValueError("Covariance matrices must be square.")
+
+    # Determine the dimensionality of the distributions.
+    D = mu1.size
+
+    # Ensure covariance dimensions match the mean vectors.
+    if Sigma1.shape != (D, D) or Sigma2.shape != (D, D):
+        raise ValueError("Covariance dimensions must match the mean vectors.")
+
+    # Validate covariance matrix values.
+    if not np.all(np.isfinite(Sigma1)) or not np.all(np.isfinite(Sigma2)):
+        raise ValueError("Covariance matrices must contain finite values.")
+
+    # Covariance matrices must be symmetric.
+    if not np.allclose(Sigma1, Sigma1.T) or not np.allclose(Sigma2, Sigma2.T):
+        raise ValueError("Covariance matrices must be symmetric.")
+
+    # Verify positive definiteness using Cholesky decomposition.
+    try:
+        np.linalg.cholesky(Sigma1)
+        np.linalg.cholesky(Sigma2)
+    except np.linalg.LinAlgError:
+        raise ValueError("Covariance matrices must be positive definite.")
+
+    # Calculate the log determinants using slogdet.
+    # This avoids directly computing potentially unstable determinants.
+    sign1, logdet1 = np.linalg.slogdet(Sigma1)
+    sign2, logdet2 = np.linalg.slogdet(Sigma2)
+
+    if sign1 <= 0 or sign2 <= 0:
+        raise ValueError("Covariance determinants must be positive.")
+
+    # Calculate the trace term using solve instead of an explicit inverse.
+    trace_term = np.trace(
+        np.linalg.solve(Sigma2, Sigma1)
+    )
+
+    # Calculate the difference between the mean vectors.
+    diff = mu2 - mu1
+
+    # Calculate the quadratic term using a linear system solver.
+    quadratic_term = diff @ np.linalg.solve(Sigma2, diff)
+
+    # Calculate the logarithm of the determinant ratio.
+    logdet_term = logdet2 - logdet1
+
+    # Apply the multivariate Gaussian KL divergence formula.
+    divergence = 0.5 * (
+        trace_term
+        + quadratic_term
+        - D
+        + logdet_term
+    )
+
+    # Eliminate tiny negative values caused by floating-point rounding.
+    return float(max(0.0, divergence))
+

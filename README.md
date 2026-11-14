@@ -23,6 +23,7 @@ python scaffold.py
 - [x] **11.** entropy_estimates
 - [x] **12.** kl_divergence
 - [x] **13.** quantized_entropy
+- [x] **14.** gaussian_kl
 
 ---
 
