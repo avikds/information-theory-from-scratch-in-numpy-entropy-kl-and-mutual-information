@@ -3056,3 +3056,127 @@ def relationship_zoo(n=500, seed=0, noise=0.0):
 
     return results
 
+# Step 26 - conditional_mi
+def bsc(eps):
+    """
+    Construct the transition matrix of a Binary Symmetric Channel.
+
+    Parameters:
+        eps: Probability of flipping the input bit.
+
+    Returns:
+        A 2x2 NumPy array representing the channel transition matrix.
+    """
+
+    # Validate the channel error probability.
+    if not np.isfinite(eps) or not 0.0 <= eps <= 1.0:
+        raise ValueError("eps must be between 0 and 1.")
+
+    # Construct the Binary Symmetric Channel transition matrix.
+    return np.array([
+        [1.0 - eps, eps],
+        [eps, 1.0 - eps]
+    ], dtype=float)
+
+
+def channel_chain(p_x, A, B):
+    """
+    Construct the joint distribution P(X, Y, Z)
+    for the Markov chain X -> Y -> Z.
+
+    Parameters:
+        p_x: Probability distribution of X.
+        A: Transition matrix P(Y | X).
+        B: Transition matrix P(Z | Y).
+
+    Returns:
+        Three-dimensional NumPy array P[x, y, z].
+    """
+
+    # Convert inputs into NumPy arrays.
+    p_x = np.asarray(p_x, dtype=float).ravel()
+    A = np.asarray(A, dtype=float)
+    B = np.asarray(B, dtype=float)
+
+    # Validate the dimensions of the input distributions.
+    if A.ndim != 2 or B.ndim != 2:
+        raise ValueError("A and B must be two-dimensional transition matrices.")
+
+    if A.shape[0] != p_x.size:
+        raise ValueError("The rows of A must correspond to the states of X.")
+
+    if A.shape[1] != B.shape[0]:
+        raise ValueError("The states of Y must match between A and B.")
+
+    # Validate probability values.
+    if (not np.all(np.isfinite(p_x)) or
+            not np.all(np.isfinite(A)) or
+            not np.all(np.isfinite(B)) or
+            np.any(p_x < 0) or np.any(A < 0) or np.any(B < 0)):
+        raise ValueError("All probabilities must be finite and non-negative.")
+
+    # Ensure p_x is a valid probability distribution.
+    if not np.isclose(np.sum(p_x), 1.0):
+        raise ValueError("p_x must sum to 1.")
+
+    # Ensure each row of the transition matrices is normalized.
+    if not np.allclose(np.sum(A, axis=1), 1.0):
+        raise ValueError("Each row of A must sum to 1.")
+
+    if not np.allclose(np.sum(B, axis=1), 1.0):
+        raise ValueError("Each row of B must sum to 1.")
+
+    # Construct the joint distribution:
+    # P[x, y, z] = p(x) * A[x, y] * B[y, z].
+    P = (
+        p_x[:, None, None]
+        * A[:, :, None]
+        * B[None, :, :]
+    )
+
+    return P
+
+
+def conditional_mi(P, base=2):
+    """
+    Calculate conditional mutual information I(X; Y | Z)
+    from a three-dimensional joint probability table.
+
+    I(X; Y | Z) = H(X,Z) + H(Y,Z) - H(Z) - H(X,Y,Z)
+
+    Parameters:
+        P: Three-dimensional joint probability table P[x, y, z].
+        base: Logarithm base. Default is 2 (bits).
+
+    Returns:
+        Python float representing conditional mutual information.
+    """
+
+    # Convert the joint probability table into a NumPy array.
+    P = np.asarray(P, dtype=float)
+
+    # Ensure the input is three-dimensional.
+    if P.ndim != 3:
+        raise ValueError("P must be a three-dimensional joint probability table.")
+
+    # Marginalize over Y to obtain P(X, Z).
+    P_xz = np.sum(P, axis=1)
+
+    # Marginalize over X to obtain P(Y, Z).
+    P_yz = np.sum(P, axis=0)
+
+    # Marginalize over X and Y to obtain P(Z).
+    P_z = np.sum(P, axis=(0, 1))
+
+    # Calculate the required entropy quantities.
+    H_xz = entropy(P_xz, base=base)
+    H_yz = entropy(P_yz, base=base)
+    H_z = entropy(P_z, base=base)
+    H_xyz = entropy(P, base=base)
+
+    # Calculate conditional mutual information.
+    I_xyz = H_xz + H_yz - H_z - H_xyz
+
+    # Eliminate small negative values caused by floating-point rounding.
+    return float(max(0.0, I_xyz))
+

@@ -35,6 +35,7 @@ python scaffold.py
 - [x] **23.** optimal_x_partition
 - [x] **24.** mic
 - [x] **25.** relationship_zoo
+- [x] **26.** conditional_mi
 
 ---
 
