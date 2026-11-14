@@ -15,6 +15,7 @@ python scaffold.py
 - [x] **3.** load_names
 - [x] **4.** fit_ngram
 - [x] **5.** model_perplexity
+- [x] **6.** ngram_ladder
 
 ---
 

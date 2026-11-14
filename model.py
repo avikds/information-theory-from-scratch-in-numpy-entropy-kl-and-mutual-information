@@ -472,3 +472,110 @@ def model_perplexity(table, seqs):
 
     return bits_per_symbol, perplexity
 
+# Step 6 - ngram_ladder
+def ngram_ladder(splits, max_order=4, alphas=(0.001, 0.01, 0.03, 0.1, 0.3, 1.0)):
+    """
+    Evaluate n-gram language models across different model orders.
+
+    For each order, select the best smoothing parameter using
+    validation cross-entropy, then evaluate training and test perplexity.
+
+    Parameters:
+        splits: Dictionary containing 'train', 'val', and 'test' sequences.
+        max_order: Maximum n-gram model order to evaluate. Default is 4.
+        alphas: Tuple of smoothing parameters to evaluate.
+
+    Returns:
+        List of dictionaries containing:
+            'order': N-gram model order.
+            'alpha': Selected smoothing parameter.
+            'train': Training perplexity using alpha=0.0.
+            'test': Test perplexity using the selected alpha.
+    """
+
+    # Initialize the results with the uniform baseline.
+    rows = [
+        {
+            "order": 0,
+            "alpha": None,
+            "train": 27.0,
+            "test": 27.0
+        }
+    ]
+
+    # Ensure that at least one smoothing parameter is provided.
+    alphas = tuple(alphas)
+
+    if len(alphas) == 0:
+        raise ValueError("At least one alpha value must be provided.")
+
+    # Retrieve the training, validation, and test datasets.
+    train_seqs = splits["train"]
+    val_seqs = splits["val"]
+    test_seqs = splits["test"]
+
+    # Evaluate n-gram models from order 1 to max_order.
+    for order in range(1, max_order + 1):
+
+        # Initialize variables for selecting the best alpha.
+        best_alpha = None
+        best_val_entropy = float("inf")
+        best_table = None
+
+        # Find the smoothing parameter with the lowest
+        # cross-entropy on the validation dataset.
+        for alpha in alphas:
+
+            # Fit the model using the current alpha.
+            table = fit_ngram(
+                train_seqs,
+                order,
+                alpha=alpha
+            )
+
+            # Evaluate cross-entropy on the validation dataset.
+            val_entropy, _ = model_perplexity(
+                table,
+                val_seqs
+            )
+
+            # Update the best model if validation entropy improves.
+            # Using '<' preserves the earlier alpha when values tie.
+            if best_alpha is None or val_entropy < best_val_entropy:
+                best_alpha = alpha
+                best_val_entropy = val_entropy
+                best_table = table
+
+        # Fit a maximum likelihood model without smoothing.
+        mle_table = fit_ngram(
+            train_seqs,
+            order,
+            alpha=0.0
+        )
+
+        # Calculate training perplexity using the maximum
+        # likelihood model.
+        _, train_perplexity = model_perplexity(
+            mle_table,
+            train_seqs
+        )
+
+        # Calculate test perplexity using the model
+        # with the best validation-selected alpha.
+        _, test_perplexity = model_perplexity(
+            best_table,
+            test_seqs
+        )
+
+        # Store the results for the current n-gram order.
+        rows.append(
+            {
+                "order": order,
+                "alpha": best_alpha,
+                "train": float(train_perplexity),
+                "test": float(test_perplexity)
+            }
+        )
+
+    return rows
+
