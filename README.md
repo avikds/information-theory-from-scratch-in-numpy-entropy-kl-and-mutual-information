@@ -36,6 +36,7 @@ python scaffold.py
 - [x] **24.** mic
 - [x] **25.** relationship_zoo
 - [x] **26.** conditional_mi
+- [x] **27.** sufficient_statistic_mi
 
 ---
 

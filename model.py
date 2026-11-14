@@ -3180,3 +3180,143 @@ def conditional_mi(P, base=2):
     # Eliminate small negative values caused by floating-point rounding.
     return float(max(0.0, I_xyz))
 
+# Step 27 - sufficient_statistic_mi
+import itertools
+
+
+def sufficient_statistic_mi(n, stat, thetas, base=2):
+    """
+    Calculate the exact mutual information between a coin bias
+    and a statistic computed from n Bernoulli trials.
+
+    The model assumes:
+        - A uniform prior over the possible coin biases.
+        - Independent Bernoulli trials conditioned on the bias.
+        - Exact enumeration of all 2^n possible sequences.
+
+    Parameters:
+        n: Number of Bernoulli trials.
+        stat: Function mapping a sequence to a hashable statistic.
+              If None, each sequence is treated as its own group.
+        thetas: Array of possible coin biases.
+        base: Logarithm base. Default is 2 (bits).
+
+    Returns:
+        Python float representing I(theta; stat(D)).
+    """
+
+    # Validate the number of Bernoulli trials.
+    if (not isinstance(n, (int, np.integer)) or
+            isinstance(n, (bool, np.bool_)) or n < 0):
+        raise ValueError("n must be a non-negative integer.")
+
+    # Convert the possible coin biases into a NumPy array.
+    thetas = np.asarray(thetas, dtype=float).ravel()
+
+    # Ensure at least one possible coin bias is provided.
+    if thetas.size == 0:
+        raise ValueError("At least one coin bias is required.")
+
+    # Validate the coin bias probabilities.
+    if (not np.all(np.isfinite(thetas)) or
+            np.any(thetas < 0) or np.any(thetas > 1)):
+        raise ValueError("Coin biases must be between 0 and 1.")
+
+    # Step 1: Enumerate every possible sequence of n coin flips.
+    # Each sequence contains only 0 and 1.
+    sequences = list(
+        itertools.product([0, 1], repeat=n)
+    )
+
+    # Determine the total number of sequences and possible biases.
+    n_sequences = len(sequences)
+    n_thetas = len(thetas)
+
+    # Initialize storage for statistic groups.
+    group_mapping = {}
+    group_indices = []
+    success_counts = []
+
+    # Step 2: Group sequences according to the supplied statistic.
+    for sequence in sequences:
+
+        # Convert the sequence into a one-dimensional integer array.
+        data = np.asarray(sequence, dtype=np.int64)
+
+        # If no statistic is provided, each sequence is its own group.
+        if stat is None:
+            key = tuple(sequence)
+
+        else:
+            # Calculate the statistic for the current sequence.
+            key = stat(data)
+
+        # Assign a unique column index to each distinct statistic value.
+        try:
+            if key not in group_mapping:
+                group_mapping[key] = len(group_mapping)
+
+        except TypeError as exc:
+            raise ValueError(
+                "The statistic must return a hashable value."
+            ) from exc
+
+        # Store the corresponding statistic group.
+        group_indices.append(group_mapping[key])
+
+        # Count the number of successful coin flips.
+        success_counts.append(int(np.sum(data)))
+
+    # Convert stored values into NumPy arrays.
+    group_indices = np.asarray(group_indices, dtype=np.int64)
+    success_counts = np.asarray(success_counts, dtype=np.int64)
+
+    # Determine the number of distinct statistic values.
+    n_groups = len(group_mapping)
+
+    # Step 3: Initialize the joint probability table.
+    # Rows represent coin biases.
+    # Columns represent statistic values.
+    table = np.zeros(
+        (n_thetas, n_groups),
+        dtype=float
+    )
+
+    # Use a uniform prior over all possible coin biases.
+    prior = 1.0 / n_thetas
+
+    # Step 4: Calculate the joint probabilities.
+    for i, theta in enumerate(thetas):
+
+        # Calculate the likelihood of every possible sequence:
+        #
+        # P(D | theta) = theta^successes * (1-theta)^failures
+        #
+        # This also correctly handles theta = 0 and theta = 1.
+        likelihood = (
+            np.power(theta, success_counts)
+            * np.power(1.0 - theta, n - success_counts)
+        )
+
+        # Multiply by the prior probability of the current theta.
+        joint_probabilities = prior * likelihood
+
+        # Group sequences having the same statistic value.
+        # Their joint probabilities are added together.
+        np.add.at(
+            table[i],
+            group_indices,
+            joint_probabilities
+        )
+
+    # Normalize to protect against floating-point accumulation errors.
+    table /= table.sum()
+
+    # Step 5: Calculate mutual information between theta and the statistic.
+    result = entropy_table(
+        table,
+        base=base
+    )["I_XY"]
+
+    return float(result)
+
