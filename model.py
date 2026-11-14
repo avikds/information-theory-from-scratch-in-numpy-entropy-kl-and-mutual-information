@@ -2837,3 +2837,102 @@ def optimal_x_partition(x, y_labels, k_max, clumps_per_col=5):
 
     return result
 
+# Step 24 - mic
+def mic(x, y, alpha=0.6, clumps_per_col=5):
+    """
+    Calculate the Maximal Information Coefficient (MIC)
+    and its characteristic matrix.
+
+    Parameters:
+        x: First continuous variable.
+        y: Second continuous variable.
+        alpha: Controls the maximum grid resolution. Default is 0.6.
+        clumps_per_col: Maximum number of clumps per column. Default is 5.
+
+    Returns:
+        Tuple containing:
+            value: Maximum normalized mutual information (Python float).
+            M: Characteristic matrix containing normalized scores.
+    """
+
+    # Convert both variables into flattened NumPy arrays.
+    x = np.asarray(x, dtype=float).ravel()
+    y = np.asarray(y, dtype=float).ravel()
+
+    # Validate the input observations.
+    if x.size == 0 or y.size == 0:
+        raise ValueError("Both variables must contain observations.")
+
+    if x.size != y.size:
+        raise ValueError("Both variables must have the same number of observations.")
+
+    if not np.all(np.isfinite(x)) or not np.all(np.isfinite(y)):
+        raise ValueError("Observations must contain finite values.")
+
+    # Validate alpha and clumps_per_col.
+    if not np.isfinite(alpha) or alpha <= 0:
+        raise ValueError("alpha must be positive and finite.")
+
+    if (not isinstance(clumps_per_col, (int, np.integer)) or
+            isinstance(clumps_per_col, (bool, np.bool_)) or
+            clumps_per_col < 1):
+        raise ValueError("clumps_per_col must be a positive integer.")
+
+    # Determine the maximum grid resolution.
+    n = x.size
+    B = max(n ** alpha, 4.0)
+
+    # Determine the characteristic matrix dimensions.
+    size = int(B // 2) + 1
+
+    # Initialize the characteristic matrix.
+    M = np.zeros((size, size), dtype=float)
+
+    # Perform two passes:
+    # Pass 1: Optimize the X-axis and quantile-bin Y.
+    # Pass 2: Optimize the Y-axis and quantile-bin X.
+    for pass_idx, (a, b) in enumerate(((x, y), (y, x))):
+
+        # Iterate through possible numbers of rows.
+        for rows in range(2, size):
+
+            # Determine the maximum allowed number of columns.
+            k_max = min(int(B // rows), size - 1)
+
+            # Stop this pass when fewer than two columns are allowed.
+            if k_max < 2:
+                break
+
+            # Equiquantile binning of the other variable.
+            labels = bin_index(
+                b,
+                rows,
+                strategy="quantile"
+            )
+
+            # Find the optimal vertical partition using dynamic programming.
+            best = optimal_x_partition(
+                a,
+                labels,
+                k_max,
+                clumps_per_col
+            )
+
+            # Evaluate normalized mutual information for every grid size.
+            for k in range(2, k_max + 1):
+
+                # Normalize by the logarithm of the smaller grid dimension.
+                normalizer = np.log2(min(k, rows))
+
+                score = float(best[k] / normalizer)
+
+                # Update the characteristic matrix.
+                # The second pass fills the transposed position.
+                if pass_idx == 0:
+                    M[k, rows] = max(M[k, rows], score)
+                else:
+                    M[rows, k] = max(M[rows, k], score)
+
+    # Return the maximum MIC score and characteristic matrix.
+    return float(np.max(M)), M
+
