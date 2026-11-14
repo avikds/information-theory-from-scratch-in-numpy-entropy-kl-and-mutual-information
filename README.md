@@ -24,6 +24,7 @@ python scaffold.py
 - [x] **12.** kl_divergence
 - [x] **13.** quantized_entropy
 - [x] **14.** gaussian_kl
+- [x] **15.** fit_forward_gaussian
 
 ---
 

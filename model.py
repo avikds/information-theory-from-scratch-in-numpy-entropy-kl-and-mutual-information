@@ -1289,3 +1289,202 @@ def gaussian_kl(mu1, Sigma1, mu2, Sigma2):
     # Eliminate tiny negative values caused by floating-point rounding.
     return float(max(0.0, divergence))
 
+# Step 15 - fit_forward_gaussian
+# Parameters of the two-component Gaussian mixture.
+BIMODAL_MEANS = np.array([
+    [-2.5, -2.5],
+    [2.5, 2.5]
+])
+
+BIMODAL_COV = np.array([
+    [1.0, -0.5],
+    [-0.5, 1.0]
+])
+
+
+def bimodal_sample(n, seed):
+    """
+    Generate samples from an equal-weight two-component
+    Gaussian mixture.
+
+    Parameters:
+        n: Number of samples.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        NumPy array of shape (n, 2).
+    """
+    rng = np.random.default_rng(seed)
+
+    # Randomly select one of the two Gaussian components.
+    which = rng.integers(0, 2, size=n)
+
+    # Generate standard normal samples.
+    z = rng.standard_normal((n, 2))
+
+    # Transform samples using the covariance matrix.
+    return BIMODAL_MEANS[which] + z @ np.linalg.cholesky(BIMODAL_COV).T
+
+
+def gaussian_logpdf(X, mu, Sigma):
+    """
+    Calculate the log probability density of a multivariate
+    Gaussian distribution for each observation.
+
+    Parameters:
+        X: Observations of shape (n, d), or a single point of shape (d,).
+        mu: Mean vector of shape (d,).
+        Sigma: Covariance matrix of shape (d, d).
+               A scalar variance is also accepted for d = 1.
+
+    Returns:
+        NumPy array of shape (n,) containing log probability densities.
+    """
+
+    # Convert observations and mean into NumPy arrays.
+    X = np.asarray(X, dtype=float)
+    mu = np.asarray(mu, dtype=float).reshape(-1)
+
+    # Treat a single observation as a batch containing one point.
+    X = np.atleast_2d(X)
+
+    # Ensure observations have the correct dimensions.
+    if X.ndim != 2 or X.shape[1] != mu.size:
+        raise ValueError("Observation dimensions must match the mean vector.")
+
+    # Validate the input values.
+    if not np.all(np.isfinite(X)) or not np.all(np.isfinite(mu)):
+        raise ValueError("Observations and mean must contain finite values.")
+
+    # Convert scalar variance into a 1x1 covariance matrix.
+    Sigma = np.asarray(Sigma, dtype=float)
+
+    if Sigma.ndim == 0:
+        Sigma = Sigma.reshape(1, 1)
+
+    d = mu.size
+
+    # Validate the covariance matrix dimensions.
+    if Sigma.shape != (d, d):
+        raise ValueError("Covariance matrix dimensions must match the data.")
+
+    if not np.all(np.isfinite(Sigma)):
+        raise ValueError("Covariance matrix must contain finite values.")
+
+    # Verify that the covariance matrix is symmetric and positive definite.
+    if not np.allclose(Sigma, Sigma.T):
+        raise ValueError("Covariance matrix must be symmetric.")
+
+    try:
+        np.linalg.cholesky(Sigma)
+    except np.linalg.LinAlgError:
+        raise ValueError("Covariance matrix must be positive definite.")
+
+    # Calculate the logarithm of the covariance determinant.
+    sign, logdet = np.linalg.slogdet(Sigma)
+
+    if sign <= 0:
+        raise ValueError("Covariance determinant must be positive.")
+
+    # Center the observations around the Gaussian mean.
+    centered = X - mu
+
+    # Solve Sigma * z = centered.T instead of computing
+    # the explicit inverse of the covariance matrix.
+    solved = np.linalg.solve(Sigma, centered.T).T
+
+    # Calculate the Mahalanobis distance for each observation.
+    quadratic = np.sum(centered * solved, axis=1)
+
+    # Calculate the Gaussian log probability density.
+    logpdf = -0.5 * (
+        d * np.log(2.0 * np.pi)
+        + logdet
+        + quadratic
+    )
+
+    return np.asarray(logpdf, dtype=float)
+
+
+def bimodal_logpdf(X):
+    """
+    Calculate the log probability density of the target
+    equal-weight two-component Gaussian mixture.
+
+    Parameters:
+        X: Observations of shape (n, 2), or a single point
+           of shape (2,).
+
+    Returns:
+        NumPy array containing the log density of each observation.
+    """
+
+    # Calculate the log density under the first Gaussian component.
+    logp0 = gaussian_logpdf(
+        X,
+        BIMODAL_MEANS[0],
+        BIMODAL_COV
+    )
+
+    # Calculate the log density under the second Gaussian component.
+    logp1 = gaussian_logpdf(
+        X,
+        BIMODAL_MEANS[1],
+        BIMODAL_COV
+    )
+
+    # Combine both component densities using log-sum-exp.
+    # Each component has an equal mixture weight of 0.5.
+    log_density = np.logaddexp(logp0, logp1) - np.log(2.0)
+
+    return log_density
+
+
+def fit_forward_gaussian(samples):
+    """
+    Fit a single Gaussian distribution to samples using maximum
+    likelihood estimation.
+
+    The forward KL-optimal Gaussian has:
+        Mean = Sample mean
+        Covariance = Maximum likelihood sample covariance
+
+    The covariance is divided by n, not n - 1.
+
+    Parameters:
+        samples: Array of observations with shape (n, d).
+
+    Returns:
+        Tuple containing:
+            mu: Estimated mean vector.
+            cov: Estimated maximum likelihood covariance matrix.
+    """
+
+    # Convert samples into a NumPy array.
+    samples = np.asarray(samples, dtype=float)
+
+    # Interpret a one-dimensional input as n observations of one variable.
+    if samples.ndim == 1:
+        samples = samples.reshape(-1, 1)
+
+    # Ensure that the input has the correct dimensions.
+    if samples.ndim != 2 or samples.shape[0] == 0 or samples.shape[1] == 0:
+        raise ValueError("Samples must be a non-empty two-dimensional array.")
+
+    # Validate sample values.
+    if not np.all(np.isfinite(samples)):
+        raise ValueError("Samples must contain finite values.")
+
+    # Calculate the maximum likelihood estimate of the mean.
+    mu = np.mean(samples, axis=0)
+
+    # Center the observations around the estimated mean.
+    centered = samples - mu
+
+    # Calculate the maximum likelihood covariance matrix.
+    # Divide by n rather than n - 1.
+    n = samples.shape[0]
+    cov = (centered.T @ centered) / n
+
+    return mu, cov
+
