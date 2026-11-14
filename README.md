@@ -14,6 +14,7 @@ python scaffold.py
 - [x] **2.** huffman_lengths
 - [x] **3.** load_names
 - [x] **4.** fit_ngram
+- [x] **5.** model_perplexity
 
 ---
 

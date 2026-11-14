@@ -419,3 +419,56 @@ def fit_ngram(seqs, order, alpha=0.0):
 
     return probabilities
 
+# Step 5 - model_perplexity
+def model_perplexity(table, seqs):
+    """
+    Evaluate a language model using cross-entropy and perplexity.
+
+    Parameters:
+        table: Conditional probability table of the language model.
+               Its number of dimensions determines the n-gram order.
+        seqs: List of encoded sequences to evaluate.
+
+    Returns:
+        Tuple containing:
+            bits_per_symbol: Average negative log2 probability per event.
+            perplexity: 2 raised to the bits per symbol.
+
+        Both values are Python floats.
+
+        Returns (inf, inf) if any observed event has zero probability.
+    """
+    # Convert the probability table into a NumPy array.
+    table = np.asarray(table, dtype=float)
+
+    # Determine the n-gram order from the number of table dimensions.
+    order = table.ndim
+
+    # Generate context-target events using the previously implemented function.
+    events = ngram_events(seqs, order)
+
+    # An empty dataset has no events over which to calculate a mean.
+    if len(events) == 0:
+        raise ValueError("Cannot calculate perplexity for an empty dataset.")
+
+    # Retrieve the model probability assigned to each observed event.
+    # Each row of events provides the corresponding multidimensional index.
+    probabilities = table[tuple(events.T)]
+
+    # Check that the retrieved values are valid probabilities.
+    if not np.all(np.isfinite(probabilities)) or np.any(probabilities < 0):
+        raise ValueError("Model probabilities must be finite and non-negative.")
+
+    # If any observed event has zero probability,
+    # the cross-entropy and perplexity are both infinite.
+    if np.any(probabilities == 0):
+        return float("inf"), float("inf")
+
+    # Calculate the average negative log2 probability per symbol.
+    bits_per_symbol = float(-np.mean(np.log2(probabilities)))
+
+    # Calculate perplexity from the average cross-entropy in bits.
+    perplexity = float(2.0 ** bits_per_symbol)
+
+    return bits_per_symbol, perplexity
+
