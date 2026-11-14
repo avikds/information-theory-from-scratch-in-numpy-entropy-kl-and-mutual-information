@@ -1640,3 +1640,101 @@ def fit_reverse_gaussian(mu0, n_steps=400, lr=0.05, n_mc=1024, seed=0):
 
     return mu, cov
 
+# Step 17 - kl_both_ways
+def kl_both_ways(n=100000, seed=0):
+    """
+    Compare forward and reverse KL divergence for two Gaussian
+    approximations of a bimodal target distribution.
+
+    The function:
+        1. Generates samples from the bimodal target.
+        2. Fits a forward Gaussian using maximum likelihood.
+        3. Fits a reverse Gaussian using reverse KL minimization.
+        4. Uses shared standard normal samples to generate
+           samples from both fitted Gaussian distributions.
+        5. Estimates both KL divergence directions using
+           Monte Carlo averages.
+
+    Parameters:
+        n: Number of Monte Carlo samples. Default is 100000.
+        seed: Random seed for reproducibility. Default is 0.
+
+    Returns:
+        Dictionary containing two entries:
+            'forward': Results for the forward Gaussian fit.
+            'reverse': Results for the reverse Gaussian fit.
+
+        Each entry contains:
+            'mu': Fitted mean vector.
+            'cov': Fitted covariance matrix.
+            'kl_p_q': Estimated KL(p || q) in nats.
+            'kl_q_p': Estimated KL(q || p) in nats.
+    """
+
+    # Step 1: Generate samples from the target bimodal distribution.
+    xp = bimodal_sample(n, seed)
+
+    # Calculate the target log density for these samples.
+    logp_xp = bimodal_logpdf(xp)
+
+    # Step 2: Fit the forward Gaussian using maximum likelihood.
+    # Use seed + 1 to generate an independent training sample.
+    forward_samples = bimodal_sample(n, seed + 1)
+
+    mu_f, cov_f = fit_forward_gaussian(forward_samples)
+
+    # Fit the reverse Gaussian by minimizing reverse KL divergence.
+    mu_r, cov_r = fit_reverse_gaussian(
+        [1.0, 0.5],
+        seed=seed
+    )
+
+    # Step 3: Generate standard normal samples ONCE.
+    # Reuse the same random samples for both Gaussian approximations.
+    rng = np.random.default_rng(seed + 2)
+    z = rng.standard_normal((n, 2))
+
+    # Store the two fitted Gaussian models.
+    models = {
+        "forward": (mu_f, cov_f),
+        "reverse": (mu_r, cov_r)
+    }
+
+    # Initialize the output dictionary.
+    results = {}
+
+    # Step 4: Evaluate both KL directions for each fitted Gaussian.
+    for name, (mu, cov) in models.items():
+
+        # Generate samples from the fitted Gaussian using
+        # the shared standard normal samples.
+        L = np.linalg.cholesky(cov)
+        xq = mu + z @ L.T
+
+        # Calculate log q(x) for samples from the target distribution.
+        logq_xp = gaussian_logpdf(xp, mu, cov)
+
+        # Calculate log q(x) for samples from the fitted Gaussian.
+        logq_xq = gaussian_logpdf(xq, mu, cov)
+
+        # Calculate log p(x) for samples from the fitted Gaussian.
+        logp_xq = bimodal_logpdf(xq)
+
+        # Estimate forward KL divergence:
+        # D_KL(p || q) = E_p[log p(x) - log q(x)].
+        kl_p_q = float(np.mean(logp_xp - logq_xp))
+
+        # Estimate reverse KL divergence:
+        # D_KL(q || p) = E_q[log q(x) - log p(x)].
+        kl_q_p = float(np.mean(logq_xq - logp_xq))
+
+        # Store the fitted parameters and KL estimates.
+        results[name] = {
+            "mu": mu,
+            "cov": cov,
+            "kl_p_q": kl_p_q,
+            "kl_q_p": kl_q_p
+        }
+
+    return results
+

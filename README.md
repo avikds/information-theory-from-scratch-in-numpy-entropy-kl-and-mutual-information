@@ -26,6 +26,7 @@ python scaffold.py
 - [x] **14.** gaussian_kl
 - [x] **15.** fit_forward_gaussian
 - [x] **16.** fit_reverse_gaussian
+- [x] **17.** kl_both_ways
 
 ---
 
