@@ -12,6 +12,7 @@ python scaffold.py
 
 - [x] **1.** entropy
 - [x] **2.** huffman_lengths
+- [x] **3.** load_names
 
 ---
 

@@ -227,3 +227,72 @@ def expected_code_length(p, lengths):
 
     return float(L)
 
+# Step 3 - load_names
+import dml_data
+
+
+ALPHABET = ".abcdefghijklmnopqrstuvwxyz"
+
+
+def load_names(seed=0):
+    """
+    Load and encode the first-names dataset, then split it into
+    training, validation, and test sets.
+
+    Parameters:
+        seed: Random seed for reproducible shuffling. Default is 0.
+
+    Returns:
+        Dictionary containing:
+            'train': Training set (80%).
+            'val': Validation set (10%).
+            'test': Test set (remaining 10%).
+
+        Each set is a list of NumPy arrays with dtype np.int64.
+        Every encoded name ends with 0, representing the end-of-name symbol.
+    """
+    # Load the first-names dataset.
+    names = dml_data.load("names").names
+
+    # Get the total number of names.
+    n = len(names)
+
+    # Generate a reproducible random permutation of the dataset indices.
+    rng = np.random.default_rng(seed)
+    order = rng.permutation(n)
+
+    # Create a mapping from each character to its index in ALPHABET.
+    char_to_index = {char: i for i, char in enumerate(ALPHABET)}
+
+    # Encode each shuffled name as integer character indices.
+    # Append 0 to represent the end-of-name symbol.
+    encoded_names = []
+
+    for i in order:
+        name = names[i].lower()
+
+        # Convert each character into its corresponding integer index.
+        encoded = [char_to_index[char] for char in name]
+
+        # Append the end-of-name symbol.
+        encoded.append(0)
+
+        # Store the encoded name as a NumPy int64 array.
+        encoded_names.append(np.array(encoded, dtype=np.int64))
+
+    # Calculate the training and validation split boundaries.
+    n_train = int(0.8 * n)
+    n_val = int(0.9 * n)
+
+    # Split the shuffled and encoded names into three datasets.
+    train = encoded_names[:n_train]
+    val = encoded_names[n_train:n_val]
+    test = encoded_names[n_val:]
+
+    # Return the datasets in the required dictionary format.
+    return {
+        "train": train,
+        "val": val,
+        "test": test
+    }
+
