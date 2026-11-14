@@ -1839,3 +1839,138 @@ def mean_field_reverse_kl(P, seed=0, n_iters=200, eps=1e-8):
 
     return qx, qy, kl
 
+# Step 19 - gaussian_mi
+def gaussian_mi(rho):
+    """
+    Calculate mutual information between two jointly Gaussian
+    random variables using their correlation coefficient.
+
+    I(X;Y) = -0.5 * ln(1 - rho^2)
+
+    Parameters:
+        rho: Correlation coefficient between X and Y.
+
+    Returns:
+        Python float representing mutual information in nats.
+        Returns infinity when abs(rho) >= 1.
+    """
+
+    # Convert the correlation coefficient into a Python float.
+    rho = float(rho)
+
+    # Validate the correlation coefficient.
+    if not np.isfinite(rho):
+        raise ValueError("Correlation coefficient must be finite.")
+
+    # Perfect correlation results in infinite mutual information.
+    if abs(rho) >= 1:
+        return float("inf")
+
+    # Calculate Gaussian mutual information in nats.
+    mi = -0.5 * np.log(1.0 - rho ** 2)
+
+    return float(mi)
+
+
+def gaussian_block_mi(Sigma, dx):
+    """
+    Calculate mutual information between two blocks of jointly
+    Gaussian variables using their joint covariance matrix.
+
+    X consists of the first dx coordinates.
+    Y consists of the remaining coordinates.
+
+    I(X;Y) = h(X) + h(Y) - h(X,Y)
+
+    Parameters:
+        Sigma: Joint covariance matrix of shape (d, d).
+        dx: Number of coordinates belonging to X.
+
+    Returns:
+        Python float representing mutual information in nats.
+    """
+
+    # Convert the covariance matrix into a NumPy array.
+    Sigma = np.asarray(Sigma, dtype=float)
+
+    # Validate the covariance matrix dimensions.
+    if Sigma.ndim != 2 or Sigma.shape[0] != Sigma.shape[1]:
+        raise ValueError("Sigma must be a square covariance matrix.")
+
+    # Determine the total number of variables.
+    d = Sigma.shape[0]
+
+    # Validate the partition dimension.
+    if not isinstance(dx, (int, np.integer)) or isinstance(dx, (bool, np.bool_)) or not 0 < dx < d:
+        raise ValueError("dx must be an integer between 0 and d.")
+
+    # Check that the covariance matrix is symmetric.
+    if not np.allclose(Sigma, Sigma.T):
+        raise ValueError("Sigma must be symmetric.")
+
+    # Extract the covariance matrix of X (first dx coordinates).
+    Sigma_x = Sigma[:dx, :dx]
+
+    # Extract the covariance matrix of Y (remaining coordinates).
+    Sigma_y = Sigma[dx:, dx:]
+
+    # Calculate the marginal differential entropies.
+    h_x = gaussian_entropy(Sigma_x)
+    h_y = gaussian_entropy(Sigma_y)
+
+    # Calculate the joint differential entropy.
+    h_xy = gaussian_entropy(Sigma)
+
+    # Calculate mutual information using the entropy identity.
+    mi = h_x + h_y - h_xy
+
+    # Protect against tiny negative values caused by floating-point rounding.
+    return float(max(0.0, mi))
+
+
+def sample_gaussian_pair(n, rho, seed):
+    """
+    Generate two correlated standard Gaussian random variables.
+
+    X ~ N(0, 1)
+    Y = rho * X + sqrt(1 - rho^2) * Z
+
+    where Z is an independent standard normal random variable.
+
+    Parameters:
+        n: Number of samples.
+        rho: Desired correlation coefficient.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        Tuple containing:
+            x: NumPy array of length n.
+            y: NumPy array of length n.
+
+        Both variables have unit variance and correlation rho.
+    """
+
+    # Validate the sample count.
+    if not isinstance(n, (int, np.integer)) or isinstance(n, (bool, np.bool_)) or n < 0:
+        raise ValueError("n must be a non-negative integer.")
+
+    # Validate the correlation coefficient.
+    rho = float(rho)
+
+    if not np.isfinite(rho) or abs(rho) > 1:
+        raise ValueError("rho must be between -1 and 1.")
+
+    # Create a reproducible random number generator.
+    rng = np.random.default_rng(seed)
+
+    # Generate the first standard normal variable.
+    x = rng.standard_normal(n)
+
+    # Generate independent standard normal noise.
+    noise = rng.standard_normal(n)
+
+    # Construct the second Gaussian variable with correlation rho.
+    y = rho * x + np.sqrt(1.0 - rho ** 2) * noise
+
+    return x, y
+
